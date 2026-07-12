@@ -41,6 +41,7 @@ docker compose down          # keeps data volumes
 ## Documentation
 
 - [Application specification](openkeep-spec.md) — product scope, data model, API, and UI behavior
+- [OpenMediaVault deployment](README_OMV.md) — OMV Compose stack with public images
 - [API notes](api/README.md)
 - [Web client notes](web/README.md)
 
