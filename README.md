@@ -25,7 +25,7 @@ cd api && ./gradlew bootRun
 cd web && npm ci && npm run dev
 ```
 
-With Vite on port 5173, set `OPENKEEP_CORS_ALLOWED_ORIGINS=http://localhost:5173` in `.env` and restart the API.
+The Vite dev server proxies `/api` to the API, so no extra CORS configuration is needed.
 
 ## Useful commands
 

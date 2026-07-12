@@ -43,7 +43,6 @@ services:
       - OPENKEEP_ATTACHMENT_STORAGE_ROOT=/data/attachments
       - OPENKEEP_ATTACHMENT_MAX_FILE_SIZE=26214400
       - OPENKEEP_ATTACHMENT_PER_USER_QUOTA=1073741824
-      - OPENKEEP_CORS_ALLOWED_ORIGINS=
       - TZ=${{ tz }}
     volumes:
       - CHANGE_TO_COMPOSE_DATA_PATH/openkeep/attachments:/data/attachments

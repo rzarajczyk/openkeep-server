@@ -26,7 +26,6 @@ The API listens on port 8080. OpenAPI is available at `/openapi.json` and health
 - `OPENKEEP_ATTACHMENT_MAX_FILE_SIZE` — application-level upload limit in bytes, default 25 MiB
 - `OPENKEEP_MULTIPART_MAX_FILE_SIZE` — servlet upload limit, default `25MB`
 - `OPENKEEP_ATTACHMENT_PER_USER_QUOTA` — per-user attachment quota in bytes, default 1 GiB
-- `OPENKEEP_CORS_ALLOWED_ORIGINS` — comma-separated browser origins; defaults to local dev origins
 
 Run verification with `./gradlew clean test bootJar`. Database integration tests use
 Testcontainers and are skipped automatically only when Docker is unavailable.

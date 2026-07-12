@@ -52,5 +52,3 @@ openkeep:
     storage-root: ${OPENKEEP_ATTACHMENT_STORAGE_ROOT:./data/attachments}
     max-file-size: ${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:26214400}
     per-user-quota: ${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:1073741824}
-  cors:
-    allowed-origins: ${OPENKEEP_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
