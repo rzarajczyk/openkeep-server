@@ -1,0 +1,54 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# OpenKeep runtime data
+/attachments/
+/data/
+/backups/
+
+# Kotlin, Java, and Gradle
+.gradle/
+**/build/
+**/out/
+*.class
+*.jar
+*.war
+hs_err_pid*
+replay_pid*
+
+# Node, Vite, and Playwright
+node_modules/
+dist/
+.vite/
+.turbo/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDEs and editors
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*~
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.log
+*.tmp
+.cache/

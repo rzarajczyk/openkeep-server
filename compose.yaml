@@ -1,0 +1,126 @@
+name: openkeep
+
+services:
+  web:
+    build:
+      context: ./web
+    image: openkeep-web:latest
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${OPENKEEP_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://127.0.0.1:8080/ || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - edge
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  api:
+    build:
+      context: ./api
+    image: openkeep-api:latest
+    restart: unless-stopped
+    init: true
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/${POSTGRES_DB:-openkeep}"
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-openkeep}"
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      SPRING_JPA_OPEN_IN_VIEW: "false"
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: "${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:-26214400}B"
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: "${OPENKEEP_MULTIPART_MAX_REQUEST_SIZE:-27262976}B"
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      OPENKEEP_USERS_JSON: "${OPENKEEP_USERS_JSON:?Set OPENKEEP_USERS_JSON in .env}"
+      OPENKEEP_TOKEN_TTL: "${OPENKEEP_TOKEN_TTL:-PT24H}"
+      OPENKEEP_ATTACHMENT_STORAGE_ROOT: /data/attachments
+      OPENKEEP_ATTACHMENT_MAX_FILE_SIZE: "${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:-26214400}"
+      OPENKEEP_ATTACHMENT_PER_USER_QUOTA: "${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:-1073741824}"
+      OPENKEEP_CORS_ALLOWED_ORIGINS: "${OPENKEEP_CORS_ALLOWED_ORIGINS:-}"
+    expose:
+      - "8080"
+    volumes:
+      - attachments:/data/attachments
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:8080/health > /dev/null || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-openkeep}"
+      POSTGRES_USER: "${POSTGRES_USER:-openkeep}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 1m
+    shm_size: 128mb
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  edge:
+  backend:
+    internal: true
+
+volumes:
+  postgres:
+    name: openkeep-postgres
+  attachments:
+    name: openkeep-attachments

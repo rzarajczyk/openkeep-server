@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: openkeep-api
+  datasource:
+    url: ${OPENKEEP_DATABASE_URL:jdbc:postgresql://localhost:5432/openkeep}
+    username: ${OPENKEEP_DATABASE_USER:openkeep}
+    password: ${OPENKEEP_DATABASE_PASSWORD:openkeep}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: ${OPENKEEP_MULTIPART_MAX_FILE_SIZE:25MB}
+      max-request-size: ${OPENKEEP_MULTIPART_MAX_REQUEST_SIZE:26MB}
+      file-size-threshold: 0
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  forward-headers-strategy: framework
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    path: /openapi.json
+  swagger-ui:
+    enabled: false
+
+openkeep:
+  users-json: ${OPENKEEP_USERS_JSON:}
+  token-ttl: ${OPENKEEP_TOKEN_TTL:30d}
+  max-sync-limit: ${OPENKEEP_MAX_SYNC_LIMIT:200}
+  attachment:
+    storage-root: ${OPENKEEP_ATTACHMENT_STORAGE_ROOT:./data/attachments}
+    max-file-size: ${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:26214400}
+    per-user-quota: ${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:1073741824}
+  cors:
+    allowed-origins: ${OPENKEEP_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
