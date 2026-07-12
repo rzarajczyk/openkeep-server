@@ -71,7 +71,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && vars.DOCKER_PUBLISH == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -80,7 +80,7 @@ jobs:
       - name: Prepare image tags
         id: docker
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ vars.DOCKER_PUBLISH }}" = "true" ]; then
             echo "push=true" >> "$GITHUB_OUTPUT"
             echo "api_tags=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
             echo "web_tags=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
