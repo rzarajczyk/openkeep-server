@@ -59,7 +59,7 @@ test('signs in and creates a text note', async ({ page }) => {
   await page.getByRole('button', { name: 'Sign in' }).click()
 
   await expect(page.getByRole('heading', { name: 'Your notes' })).toBeVisible()
-  await page.getByRole('button', { name: 'Add note' }).click()
+  await page.getByLabel('Create note').getByRole('button', { name: 'Add note' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.getByLabel('Note title').fill('Smoke test note')
   await page.getByLabel('Note content').fill('Created by Playwright')

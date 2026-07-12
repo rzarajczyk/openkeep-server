@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+
+jobs:
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+  web-tests:
+    name: Web tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+
+  docker:
+    name: Docker images
+    needs: [api-tests, web-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image names
+        run: |
+          APP_NAME=$(grep -E '^name:' compose.yaml | awk '{print $2}')
+          echo "APP_NAME=${APP_NAME}" >> "$GITHUB_ENV"
+          echo "API_IMAGE=${APP_NAME}-api" >> "$GITHUB_ENV"
+          echo "WEB_IMAGE=${APP_NAME}-web" >> "$GITHUB_ENV"
+          echo "TAG_NOW=$(date +'%Y-%m-%d-%H-%M-%S')" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Prepare image tags
+        id: docker
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+            echo "api_tags=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
+            echo "web_tags=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=false" >> "$GITHUB_OUTPUT"
+            echo "api_tags=${{ env.API_IMAGE }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "web_tags=${{ env.WEB_IMAGE }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          push: ${{ steps.docker.outputs.push == 'true' }}
+          tags: ${{ steps.docker.outputs.api_tags }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          push: ${{ steps.docker.outputs.push == 'true' }}
+          tags: ${{ steps.docker.outputs.web_tags }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
