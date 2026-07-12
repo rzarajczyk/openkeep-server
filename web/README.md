@@ -5,7 +5,7 @@ React and TypeScript single-page client for OpenKeep.
 ## Development
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 

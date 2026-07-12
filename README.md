@@ -25,7 +25,7 @@ cd api && ./gradlew bootRun
 cd web && npm ci && npm run dev
 ```
 
-The Vite dev server proxies `/api` to the API, so no extra CORS configuration is needed.
+The Vite dev server proxies `/api` to the API on port 8080, matching the production web container.
 
 ## Useful commands
 

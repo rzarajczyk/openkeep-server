@@ -16,7 +16,7 @@ Three services via Docker Compose:
 - **api** — server (Kotlin + Spring Boot)
 - **db** — PostgreSQL
 
-Authentication is sessionless: login returns a bearer token, and every request is scoped to one user account.
+Authentication is sessionless: login returns a bearer token, and every request is scoped to one user account. In Compose deployments, the `web` container proxies `/api` to the API service on the same browser origin.
 
 ### Server stack (Kotlin + Spring Boot)
 

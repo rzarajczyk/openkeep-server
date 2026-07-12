@@ -13,7 +13,8 @@ export OPENKEEP_USERS_JSON='[{"login":"admin","password":"change-this-password"}
 
 The default database is `jdbc:postgresql://localhost:5432/openkeep` with username and password
 `openkeep`. Override it with `OPENKEEP_DATABASE_URL`, `OPENKEEP_DATABASE_USER`, and
-`OPENKEEP_DATABASE_PASSWORD`.
+`OPENKEEP_DATABASE_PASSWORD`, or the standard Spring Boot variables `SPRING_DATASOURCE_URL`,
+`SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` (used by `compose.yaml`).
 
 The API listens on port 8080. OpenAPI is available at `/openapi.json` and health at `/health`.
 
