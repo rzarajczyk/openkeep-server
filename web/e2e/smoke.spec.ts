@@ -8,6 +8,8 @@ const createdNote = {
   contentRendered: '',
   backgroundColor: '#ffffff',
   archived: false,
+  pinned: false,
+  labels: [],
   createdAt: '2026-07-12T12:00:00Z',
   updatedAt: '2026-07-12T12:00:00Z',
   version: 1,
