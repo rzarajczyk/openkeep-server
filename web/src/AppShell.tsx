@@ -330,7 +330,7 @@ export function AppShell({ user, onLogout }: AppShellProps) {
           <span className="avatar" aria-hidden="true">
             {user.login.slice(0, 1).toUpperCase()}
           </span>
-          <span>{user.login}</span>
+          <span className="user-login">{user.login}</span>
           <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label="Sign out">
             <LogOut />
           </button>

@@ -263,6 +263,8 @@ svg {
   position: sticky;
   top: 72px;
   align-self: start;
+  display: flex;
+  flex-direction: column;
   height: calc(100vh - 72px);
   padding: 28px 16px 20px;
   border-right: 1px solid var(--line);
@@ -540,15 +542,21 @@ svg {
     grid-template-columns: 32px minmax(0, 1fr) 38px;
     align-items: center;
     gap: 9px;
-    margin: 24px 8px 0;
+    margin: auto 0 0;
     padding: 14px 6px 0;
     border-top: 1px solid var(--line);
     font-size: 0.82rem;
   }
+  .mobile-account .avatar { flex-shrink: 0; }
   .mobile-account > span:nth-child(2) {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .sidebar-status {
+    position: static;
+    margin: 10px 6px 0;
   }
   .workspace { padding: 34px 20px 70px; }
 }
