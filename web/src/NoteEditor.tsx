@@ -25,7 +25,7 @@ import {
 import { api } from './api'
 import { AttachmentView } from './AttachmentView'
 import type { ChecklistItem, Note, SaveState } from './types'
-import { errorMessage, isNoteEmpty, NOTE_COLORS, noteToWrite } from './utils'
+import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, noteToWrite } from './utils'
 
 interface NoteEditorProps {
   note: Note
@@ -185,7 +185,7 @@ export function NoteEditor({
 
   function addItem() {
     const item: ChecklistItem = {
-      id: crypto.randomUUID(),
+      id: createId(),
       text: '',
       checked: false,
       sortOrder: draft.items.length,
@@ -205,7 +205,7 @@ export function NoteEditor({
         contentRaw: '',
         contentRendered: '',
         items: (lines.length ? lines : ['']).map((text, index) => ({
-          id: crypto.randomUUID(),
+          id: createId(),
           text,
           checked: false,
           sortOrder: index,
