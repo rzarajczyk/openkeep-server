@@ -53,7 +53,6 @@ openkeep:
     max-file-size: ${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:26214400}
     per-user-quota: ${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:1073741824}
   takeout-import:
-    staging-root: ${OPENKEEP_IMPORT_STAGING_ROOT:./data/imports}
     max-upload-size: ${OPENKEEP_IMPORT_MAX_UPLOAD_SIZE:104857600}
     max-entries: ${OPENKEEP_IMPORT_MAX_ENTRIES:5000}
     max-entry-size: ${OPENKEEP_IMPORT_MAX_ENTRY_SIZE:52428800}

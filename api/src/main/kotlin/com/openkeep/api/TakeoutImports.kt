@@ -443,6 +443,11 @@ class TakeoutImportWorker(
 
 class UnsafeArchiveException(message: String) : RuntimeException(message)
 
+fun OpenKeepProperties.importStagingRoot(): Path =
+    (takeoutImport.stagingRoot ?: attachment.storageRoot.resolve(".imports"))
+        .toAbsolutePath()
+        .normalize()
+
 @Service
 class TakeoutImportService(
     private val repository: ImportJobRepository,
@@ -450,8 +455,10 @@ class TakeoutImportService(
     private val worker: TakeoutImportWorker,
     private val properties: OpenKeepProperties,
 ) {
+    private val stagingRoot = properties.importStagingRoot()
+
     init {
-        Files.createDirectories(properties.takeoutImport.stagingRoot.toAbsolutePath().normalize())
+        Files.createDirectories(stagingRoot)
     }
 
     fun submit(userId: Long, file: MultipartFile): ImportJobAcceptedResponse {
@@ -460,7 +467,7 @@ class TakeoutImportService(
             throw ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "archive_too_large", "ZIP archive exceeds the size limit")
         }
         val job = repository.save(ImportJobEntity(userId = userId))
-        val directory = properties.takeoutImport.stagingRoot.toAbsolutePath().normalize().resolve(job.id.toString())
+        val directory = stagingRoot.resolve(job.id.toString())
         val zipPath = directory.resolve("takeout.zip")
         try {
             Files.createDirectories(directory)

@@ -30,7 +30,7 @@ data class OpenKeepProperties(
     )
 
     data class TakeoutImportProperties(
-        var stagingRoot: Path = Path.of("./data/imports"),
+        var stagingRoot: Path? = null,
         var maxUploadSize: Long = 100L * 1024 * 1024,
         var maxEntries: Int = 5_000,
         var maxEntrySize: Long = 50L * 1024 * 1024,
