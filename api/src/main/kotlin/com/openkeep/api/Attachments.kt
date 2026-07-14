@@ -159,6 +159,46 @@ class AttachmentService(
         }
     }
 
+    @Transactional
+    fun importFromPath(userId: Long, noteId: UUID, source: Path, originalFilename: String, createdAt: Instant) {
+        val user = userRepository.findForUpdateById(userId)
+            ?: throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "User no longer exists")
+        if (!user.enabled) throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "User is disabled")
+        noteRepository.findByIdAndUserIdAndDeletedAtIsNull(noteId, userId)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
+
+        val temp = storage.createTempFile()
+        var finalPath: Path? = null
+        try {
+            val actualSize = copyPathWithLimit(source, temp, properties.attachment.maxFileSize)
+            val used = attachmentRepository.totalBytesForUser(userId)
+            val quota = properties.attachment.perUserQuota
+            if (actualSize > quota || used > quota - actualSize) {
+                throw ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "quota_exceeded", "Attachment storage quota exceeded")
+            }
+            val id = UUID.randomUUID()
+            val relativePath = "$userId/$noteId/$id"
+            finalPath = storage.moveIntoPlace(temp, relativePath)
+            storage.deleteOnRollback(finalPath)
+            val detectedMime = detectMime(finalPath)
+            attachmentRepository.save(
+                AttachmentEntity(
+                    id = id,
+                    noteId = noteId,
+                    kind = if (detectedMime in SAFE_INLINE_IMAGE_TYPES) AttachmentKind.IMAGE else AttachmentKind.FILE,
+                    originalFilename = safeFilename(originalFilename),
+                    storagePath = relativePath,
+                    mimeType = detectedMime,
+                    sizeBytes = actualSize,
+                    createdAt = createdAt,
+                ),
+            )
+        } catch (ex: Exception) {
+            storage.deleteBestEffort(finalPath ?: temp)
+            throw ex
+        }
+    }
+
     @Transactional(readOnly = true)
     fun open(userId: Long, id: UUID): StoredAttachment {
         val metadata = attachmentRepository.findOwned(id, userId)
@@ -193,6 +233,29 @@ class AttachmentService(
                     total += read
                     if (total > maxSize) {
                         throw ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large", "File exceeds the configured size limit")
+                    }
+                    output.write(buffer, 0, read)
+                }
+            }
+        }
+        return total
+    }
+
+    private fun copyPathWithLimit(source: Path, temp: Path, maxSize: Long): Long {
+        var total = 0L
+        Files.newInputStream(source).use { input ->
+            Files.newOutputStream(temp, StandardOpenOption.TRUNCATE_EXISTING).use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > maxSize) {
+                        throw ApiException(
+                            HttpStatus.PAYLOAD_TOO_LARGE,
+                            "file_too_large",
+                            "File exceeds the configured size limit",
+                        )
                     }
                     output.write(buffer, 0, read)
                 }

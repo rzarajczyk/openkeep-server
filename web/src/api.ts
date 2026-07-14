@@ -4,6 +4,8 @@ import type {
   Note,
   NotesPage,
   NoteWrite,
+  KeepImportAccepted,
+  KeepImportJob,
   User,
 } from './types'
 
@@ -191,6 +193,53 @@ class ApiClient {
       body.append('file', file)
       xhr.send(body)
     })
+  }
+
+  uploadGoogleKeep(
+    file: File,
+    onProgress: (progress: number) => void,
+    signal?: AbortSignal,
+  ): Promise<KeepImportAccepted> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `${API_PREFIX}/imports/google-keep`)
+      if (this.token) xhr.setRequestHeader('Authorization', `Bearer ${this.token}`)
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
+      }
+      xhr.onerror = () => reject(new ApiError('Upload failed. Check your connection.', 0))
+      xhr.onabort = () => reject(new DOMException('The upload was cancelled.', 'AbortError'))
+      xhr.onload = () => {
+        if (xhr.status === 401) this.unauthorizedHandler?.()
+        if (xhr.status < 200 || xhr.status >= 300) {
+          let message = `Upload failed (${xhr.status})`
+          try {
+            const details = JSON.parse(xhr.responseText) as { message?: string }
+            if (details.message) message = details.message
+          } catch {
+            // Keep the status-based message for non-JSON responses.
+          }
+          reject(new ApiError(message, xhr.status))
+          return
+        }
+        try {
+          resolve(JSON.parse(xhr.responseText) as KeepImportAccepted)
+        } catch {
+          reject(new ApiError('The server returned an invalid import response.', xhr.status))
+        }
+      }
+      signal?.addEventListener('abort', () => xhr.abort(), { once: true })
+      const body = new FormData()
+      body.append('file', file)
+      xhr.send(body)
+    })
+  }
+
+  keepImport(jobId: string, signal?: AbortSignal) {
+    return this.request<KeepImportJob>(
+      `/imports/google-keep/${encodeURIComponent(jobId)}`,
+      { signal },
+    )
   }
 
   deleteAttachment(id: string) {

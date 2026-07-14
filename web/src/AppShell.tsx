@@ -1,5 +1,7 @@
 import {
   Archive,
+  ChevronDown,
+  FileUp,
   KeyRound,
   LoaderCircle,
   LogOut,
@@ -14,6 +16,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { api } from './api'
 import { NoteCard } from './NoteCard'
 import { NoteEditor } from './NoteEditor'
+import { KeepImportDialog } from './KeepImportDialog'
 import {
   initialNotesState,
   notesReducer,
@@ -46,7 +49,10 @@ export function AppShell({ user, onLogout }: AppShellProps) {
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [navOpen, setNavOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [toast, setToast] = useState('')
+  const accountRef = useRef<HTMLDivElement>(null)
   const loaded = useRef(new Set<boolean>())
   const cursors = useRef<Record<string, SyncCursor>>({})
   const loadRequest = useRef(0)
@@ -162,6 +168,22 @@ export function AppShell({ user, onLogout }: AppShellProps) {
     return () => window.clearTimeout(timer)
   }, [toast])
 
+  useEffect(() => {
+    if (!accountOpen) return
+    const closeMenu = (event: MouseEvent) => {
+      if (!accountRef.current?.contains(event.target as Node)) setAccountOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAccountOpen(false)
+    }
+    document.addEventListener('mousedown', closeMenu)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeMenu)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [accountOpen])
+
   async function createNote() {
     setCreating(true)
     setLoadError('')
@@ -172,6 +194,8 @@ export function AppShell({ user, onLogout }: AppShellProps) {
         contentRaw: '',
         backgroundColor: '#ffffff',
         archived: false,
+        pinned: false,
+        labels: [],
         items: [],
       })
       dispatch({ type: 'upsert', note })
@@ -233,10 +257,13 @@ export function AppShell({ user, onLogout }: AppShellProps) {
   }
 
   const visibleNotes = useMemo(() => {
+    let notes: Note[]
     if (searchResults !== null) {
-      return searchResults.filter((note) => note.archived === archived)
+      notes = searchResults.filter((note) => note.archived === archived)
+    } else {
+      notes = selectNotes(state, archived)
     }
-    return selectNotes(state, archived)
+    return [...notes].sort((a, b) => Number(b.pinned) - Number(a.pinned))
   }, [archived, searchResults, state])
 
   const selectedNote = selectedId ? state.byId[selectedId] : null
@@ -292,11 +319,34 @@ export function AppShell({ user, onLogout }: AppShellProps) {
         >
           <RefreshCw className={syncing ? 'spin' : ''} />
         </button>
-        <div className="user-menu">
-          <span className="avatar" aria-hidden="true">
-            {user.login.slice(0, 1).toUpperCase()}
-          </span>
-          <span className="user-login">{user.login}</span>
+        <div className="user-menu" ref={accountRef}>
+          <button
+            type="button"
+            className="account-trigger"
+            aria-haspopup="menu"
+            aria-expanded={accountOpen}
+            onClick={() => setAccountOpen((open) => !open)}
+          >
+            <span className="avatar" aria-hidden="true">
+              {user.login.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="user-login">{user.login}</span>
+            <ChevronDown aria-hidden="true" />
+          </button>
+          {accountOpen && (
+            <div className="account-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountOpen(false)
+                  setImportOpen(true)
+                }}
+              >
+                <FileUp aria-hidden="true" /> Import from Google Keep
+              </button>
+            </div>
+          )}
           <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label="Sign out">
             <LogOut />
           </button>
@@ -331,6 +381,16 @@ export function AppShell({ user, onLogout }: AppShellProps) {
             {user.login.slice(0, 1).toUpperCase()}
           </span>
           <span className="user-login">{user.login}</span>
+          <button
+            type="button"
+            className="mobile-import"
+            onClick={() => {
+              setNavOpen(false)
+              setImportOpen(true)
+            }}
+          >
+            <FileUp aria-hidden="true" /> Import from Google Keep
+          </button>
           <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label="Sign out">
             <LogOut />
           </button>
@@ -428,6 +488,17 @@ export function AppShell({ user, onLogout }: AppShellProps) {
           onCanonical={replaceNote}
           onDelete={deleteNote}
           onDiscard={discardNote}
+        />
+      )}
+      {importOpen && (
+        <KeepImportDialog
+          onClose={() => setImportOpen(false)}
+          onCompleted={async () => {
+            loaded.current.clear()
+            cursors.current = {}
+            await loadNotes(archived)
+            setToast('Google Keep import completed')
+          }}
         />
       )}
       {toast && (

@@ -9,6 +9,7 @@ import {
   ListX,
   LoaderCircle,
   Paperclip,
+  Pin,
   Plus,
   RotateCcw,
   Trash2,
@@ -58,6 +59,7 @@ export function NoteEditor({
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState(note)
+  const [labelsText, setLabelsText] = useState(note.labels.join(', '))
   const latestDraft = useRef(note)
   const [revision, setRevision] = useState(0)
   const requestedRevision = useRef(0)
@@ -88,6 +90,7 @@ export function NoteEditor({
     ) {
       latestDraft.current = note
       setDraft(note)
+      setLabelsText(note.labels.join(', '))
     }
   }, [note])
 
@@ -174,6 +177,14 @@ export function NoteEditor({
     setSaveState('dirty')
     setSaveError('')
     onOptimistic(next)
+  }
+
+  function commitLabels() {
+    const labels = [...new Set(labelsText.split(',').map((label) => label.trim()).filter(Boolean))]
+    setLabelsText(labels.join(', '))
+    if (labels.length === latestDraft.current.labels.length &&
+      labels.every((label, index) => label === latestDraft.current.labels[index])) return
+    change((current) => ({ ...current, labels }))
   }
 
   function updateItem(id: string, patch: Partial<ChecklistItem>) {
@@ -466,6 +477,22 @@ export function NoteEditor({
           </div>
         )}
 
+        <div className="editor-native-fields">
+          <label htmlFor="note-labels">Labels</label>
+          <input
+            id="note-labels"
+            type="text"
+            value={labelsText}
+            onChange={(event) => setLabelsText(event.target.value)}
+            onBlur={commitLabels}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+            placeholder="Add labels separated by commas"
+          />
+          <span>Separate multiple labels with commas.</span>
+        </div>
+
         {draft.attachments.length > 0 && (
           <section className="editor-attachments" aria-label="Attachments">
             {draft.attachments.map((attachment) => (
@@ -516,6 +543,16 @@ export function NoteEditor({
             ))}
           </div>
           <div className="editor-tools">
+            <button
+              type="button"
+              className={`icon-button ${draft.pinned ? 'selected-tool' : ''}`}
+              onClick={() => change((current) => ({ ...current, pinned: !current.pinned }))}
+              aria-label={draft.pinned ? 'Unpin note' : 'Pin note'}
+              aria-pressed={draft.pinned}
+              title={draft.pinned ? 'Unpin note' : 'Pin note'}
+            >
+              <Pin />
+            </button>
             <button
               type="button"
               className="icon-button"

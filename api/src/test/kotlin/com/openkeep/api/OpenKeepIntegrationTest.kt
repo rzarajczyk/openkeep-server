@@ -22,8 +22,11 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.util.UUID
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class OpenKeepPostgres(image: String) : PostgreSQLContainer<OpenKeepPostgres>(image)
 
@@ -65,12 +68,17 @@ class OpenKeepIntegrationTest {
                       "type": "TEXT",
                       "title": "Private note",
                       "contentRaw": "**hello** <script>bad()</script>",
-                      "backgroundColor": "#ffeeaa"
+                      "backgroundColor": "#ffeeaa",
+                      "pinned": true,
+                      "labels": ["Private", "Imported"]
                     }
                     """.trimIndent(),
                 ),
         )
             .andExpect(status().isOk)
+            .andExpect(jsonPath("$.pinned").value(true))
+            .andExpect(jsonPath("$.labels[0]").value("Imported"))
+            .andExpect(jsonPath("$.labels[1]").value("Private"))
             .andExpect(jsonPath("$.contentRendered").value(org.hamcrest.Matchers.containsString("<strong>hello</strong>")))
             .andExpect(jsonPath("$.contentRendered").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<script"))))
             .andReturn()
@@ -278,6 +286,87 @@ class OpenKeepIntegrationTest {
             .andExpect(jsonPath("$.items[?(@.id == '$noteId')]").isNotEmpty)
     }
 
+    @Test
+    fun `Google Keep ZIP import is asynchronous private and repeatable`() {
+        val aliceToken = login("alice", "alice-password")
+        val bobToken = login("bob", "bob-password")
+        val title = "Takeout-${UUID.randomUUID()}"
+        val archive = keepArchive(
+            mapOf(
+                "Takeout/Keep/note.json" to
+                    """
+                    {
+                      "title": "$title",
+                      "textContent": "Visit https://example.com/imported",
+                      "color": "GREEN",
+                      "isArchived": true,
+                      "isPinned": true,
+                      "createdTimestampUsec": "1700000000000000",
+                      "userEditedTimestampUsec": "1700000100000000",
+                      "labels": [{"name": "Takeout"}],
+                      "attachments": [{"filePath": "photo.jpg", "mimetype": "image/jpeg"}],
+                      "annotations": [{"webLink": {"url": "https://ignored.example"}}],
+                      "sharees": [{"email": "ignored@example.com"}]
+                    }
+                    """.trimIndent().toByteArray(),
+                "Takeout/Keep/photo.jpg" to byteArrayOf(
+                    0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(),
+                    0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00,
+                ),
+                "Takeout/Keep/trashed.json" to
+                    """{"title":"Do not import","textContent":"trash","isTrashed":true}""".toByteArray(),
+            ),
+        )
+
+        val firstJob = submitImport(aliceToken, archive)
+        mockMvc.perform(get("/imports/google-keep/$firstJob").header("Authorization", "Bearer $bobToken"))
+            .andExpect(status().isNotFound)
+        awaitImport(aliceToken, firstJob)
+            .also {
+                assertThat(it.path("status").asText()).isEqualTo("COMPLETED")
+                assertThat(it.path("progressPercent").asInt()).isEqualTo(100)
+                assertThat(it.path("importedNotes").asInt()).isEqualTo(1)
+                assertThat(it.path("skippedNotes").asInt()).isEqualTo(1)
+                assertThat(it.path("warningCount").asInt()).isEqualTo(1)
+            }
+
+        awaitImport(aliceToken, submitImport(aliceToken, archive))
+        val search = mockMvc.perform(
+            get("/search")
+                .header("Authorization", "Bearer $aliceToken")
+                .param("q", title),
+        ).andExpect(status().isOk).andReturn()
+        val matches = objectMapper.readTree(search.response.contentAsString).filter { it.path("title").asText() == title }
+
+        assertThat(matches).hasSize(2)
+        assertThat(matches).allSatisfy {
+            assertThat(it.path("pinned").asBoolean()).isTrue()
+            assertThat(it.path("archived").asBoolean()).isTrue()
+            assertThat(it.path("backgroundColor").asText()).isEqualTo("#dcfce7")
+            assertThat(it.path("labels").map { label -> label.asText() }).containsExactly("Takeout")
+            assertThat(it.path("attachments").size()).isEqualTo(1)
+            assertThat(it.path("contentRaw").asText()).contains("https://example.com/imported")
+            assertThat(it.path("contentRaw").asText()).doesNotContain("ignored.example")
+        }
+    }
+
+    @Test
+    fun `Google Keep import rejects ZIP traversal paths`() {
+        val token = login("alice", "alice-password")
+        val archive = keepArchive(
+            mapOf(
+                "Takeout/Keep/../../escape.json" to
+                    """{"title":"Unsafe","textContent":"must not import"}""".toByteArray(),
+            ),
+        )
+
+        val result = awaitImport(token, submitImport(token, archive))
+
+        assertThat(result.path("status").asText()).isEqualTo("FAILED")
+        assertThat(result.path("importedNotes").asInt()).isZero()
+        assertThat(result.path("errorMessage").asText()).contains("unsafe path")
+    }
+
     private fun login(login: String, password: String): String {
         val result = mockMvc.perform(
             post("/auth/login")
@@ -289,6 +378,42 @@ class OpenKeepIntegrationTest {
             .andExpect(jsonPath("$.user.login").value(login))
             .andReturn()
         return objectMapper.readTree(result.response.contentAsString).get("token").asText()
+    }
+
+    private fun submitImport(token: String, archive: ByteArray): String {
+        val result = mockMvc.perform(
+            multipart("/imports/google-keep")
+                .file(MockMultipartFile("file", "takeout.zip", "application/zip", archive))
+                .header("Authorization", "Bearer $token"),
+        )
+            .andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.status").value("VALIDATING"))
+            .andReturn()
+        return objectMapper.readTree(result.response.contentAsString).path("jobId").asText()
+    }
+
+    private fun awaitImport(token: String, jobId: String): com.fasterxml.jackson.databind.JsonNode {
+        repeat(100) {
+            val result = mockMvc.perform(
+                get("/imports/google-keep/$jobId").header("Authorization", "Bearer $token"),
+            ).andExpect(status().isOk).andReturn()
+            val body = objectMapper.readTree(result.response.contentAsString)
+            if (body.path("status").asText() in setOf("COMPLETED", "FAILED")) return body
+            Thread.sleep(50)
+        }
+        throw AssertionError("Import job did not finish")
+    }
+
+    private fun keepArchive(entries: Map<String, ByteArray>): ByteArray {
+        val bytes = ByteArrayOutputStream()
+        ZipOutputStream(bytes).use { zip ->
+            entries.forEach { (name, content) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(content)
+                zip.closeEntry()
+            }
+        }
+        return bytes.toByteArray()
     }
 
     companion object {

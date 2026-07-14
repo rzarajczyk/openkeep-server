@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, MoreHorizontal, Pin, Trash2 } from 'lucide-react'
 import { useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { AttachmentView } from './AttachmentView'
 import type { Note } from './types'
@@ -46,6 +46,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
       }}
     >
       <div className="card-open">
+        {note.pinned && <Pin className="card-pin" aria-label="Pinned note" />}
         {note.attachments
           .filter((attachment) => attachment.kind === 'IMAGE')
           .slice(0, 1)
@@ -75,6 +76,11 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
               </li>
             ))}
             {note.items.length > 8 && <li className="more-items">+{note.items.length - 8} more</li>}
+          </ul>
+        )}
+        {note.labels.length > 0 && (
+          <ul className="note-labels" aria-label="Labels">
+            {note.labels.map((label) => <li key={label}>{label}</li>)}
           </ul>
         )}
       </div>

@@ -37,6 +37,8 @@ export interface Note {
   contentRendered: string
   backgroundColor: string
   archived: boolean
+  pinned: boolean
+  labels: string[]
   createdAt: string
   updatedAt: string
   version: number
@@ -51,7 +53,33 @@ export interface NoteWrite {
   contentRaw?: string
   backgroundColor?: string
   archived?: boolean
+  pinned?: boolean
+  labels?: string[]
   items?: Array<Pick<ChecklistItem, 'id' | 'text' | 'checked' | 'sortOrder'>>
+}
+
+export type KeepImportStatus = 'VALIDATING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+
+export interface KeepImportAccepted {
+  jobId: string
+  status: KeepImportStatus
+  statusUrl: string
+}
+
+export interface KeepImportJob {
+  jobId: string
+  status: KeepImportStatus
+  totalNotes: number
+  processedNotes: number
+  importedNotes: number
+  skippedNotes: number
+  warningCount: number
+  warnings: string[]
+  progressPercent: number
+  errorMessage: string | null
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
 }
 
 export interface NotesPage {

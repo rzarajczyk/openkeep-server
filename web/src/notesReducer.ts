@@ -15,6 +15,7 @@ export const initialNotesState: NotesState = { byId: {}, order: [] }
 
 function newestFirst(a: Note, b: Note) {
   return (
+    Number(b.pinned) - Number(a.pinned) ||
     new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime() ||
     b.id.localeCompare(a.id)
   )

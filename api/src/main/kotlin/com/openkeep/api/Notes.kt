@@ -45,6 +45,9 @@ data class CreateNoteRequest(
     @field:Size(max = 32)
     val backgroundColor: String = "default",
     val archived: Boolean = false,
+    val pinned: Boolean = false,
+    @field:Size(max = 100)
+    val labels: List<String> = emptyList(),
     @field:Size(max = 1000)
     val items: List<@Valid NoteItemRequest> = emptyList(),
 )
@@ -58,6 +61,9 @@ data class UpdateNoteRequest(
     @field:Size(max = 32)
     val backgroundColor: String? = null,
     val archived: Boolean? = null,
+    val pinned: Boolean? = null,
+    @field:Size(max = 100)
+    val labels: List<String>? = null,
     @field:Size(max = 1000)
     val items: List<@Valid NoteItemRequest>? = null,
     val version: Long? = null,
@@ -82,6 +88,8 @@ data class NoteResponse(
     val contentRendered: String,
     val backgroundColor: String,
     val archived: Boolean,
+    val pinned: Boolean,
+    val labels: List<String>,
     val items: List<NoteItemResponse>,
     val attachments: List<AttachmentResponse>,
     val createdAt: Instant,
@@ -118,6 +126,8 @@ class MarkdownService {
 class NoteService(
     private val noteRepository: NoteRepository,
     private val noteItemRepository: NoteItemRepository,
+    private val labelRepository: LabelRepository,
+    private val noteLabelRepository: NoteLabelRepository,
     private val attachmentRepository: AttachmentRepository,
     private val markdownService: MarkdownService,
     private val attachmentStorage: AttachmentStorage,
@@ -126,6 +136,7 @@ class NoteService(
     @Transactional
     fun create(userId: Long, request: CreateNoteRequest): NoteResponse {
         validateState(request.type, request.contentRaw, request.items)
+        val labels = validateLabels(request.labels)
         val now = Instant.now()
         val note = noteRepository.save(
             NoteEntity(
@@ -136,11 +147,13 @@ class NoteService(
                 contentRendered = if (request.type == NoteType.TEXT) markdownService.render(request.contentRaw) else "",
                 backgroundColor = validateColor(request.backgroundColor),
                 archived = request.archived,
+                pinned = request.pinned,
                 createdAt = now,
                 updatedAt = now,
             ),
         )
         replaceItems(note, request.items)
+        replaceLabels(note, labels)
         return toResponse(note)
     }
 
@@ -171,6 +184,7 @@ class NoteService(
         note.contentRendered = if (targetType == NoteType.TEXT) markdownService.render(targetContent) else ""
         request.backgroundColor?.let { note.backgroundColor = validateColor(it) }
         request.archived?.let { note.archived = it }
+        request.pinned?.let { note.pinned = it }
         note.updatedAt = Instant.now()
         noteRepository.save(note)
 
@@ -179,6 +193,7 @@ class NoteService(
         } else if (request.items != null || request.type != null) {
             replaceItems(note, targetItems)
         }
+        request.labels?.let { replaceLabels(note, validateLabels(it)) }
         return toResponse(note)
     }
 
@@ -257,6 +272,27 @@ class NoteService(
         }
     }
 
+    private fun replaceLabels(note: NoteEntity, names: List<String>) {
+        noteLabelRepository.deleteAllByNoteId(note.id)
+        if (names.isEmpty()) return
+        val existing = labelRepository.findAllByUserIdAndNameIn(note.userId, names).associateBy { it.name }
+        val labels = names.map { name ->
+            existing[name] ?: labelRepository.save(LabelEntity(userId = note.userId, name = name))
+        }
+        noteLabelRepository.saveAll(labels.map { NoteLabelEntity(noteId = note.id, labelId = it.id) })
+    }
+
+    private fun validateLabels(values: List<String>): List<String> {
+        if (values.size > 100) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_labels", "A note cannot have more than 100 labels")
+        }
+        val labels = values.map { it.trim() }.distinct()
+        if (labels.any { it.isEmpty() || it.length > 500 || it.any(Char::isISOControl) }) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_labels", "Labels must be 1 to 500 printable characters")
+        }
+        return labels
+    }
+
     private fun validateState(type: NoteType, contentRaw: String, items: List<NoteItemRequest>) {
         when (type) {
             NoteType.TEXT -> if (items.isNotEmpty()) {
@@ -309,6 +345,8 @@ class NoteService(
             contentRendered = note.contentRendered,
             backgroundColor = note.backgroundColor,
             archived = note.archived,
+            pinned = note.pinned,
+            labels = noteLabelRepository.findNamesByNoteId(note.id),
             items = items,
             attachments = attachments,
             createdAt = note.createdAt,

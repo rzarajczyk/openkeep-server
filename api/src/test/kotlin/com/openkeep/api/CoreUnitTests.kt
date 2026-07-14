@@ -1,5 +1,6 @@
 package com.openkeep.api
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito
@@ -32,6 +33,56 @@ class CoreUnitTests {
         assertThat(AuthService.hashToken("opaque-token")).isEqualTo(
             "84d3f23da9b5f51b3269566eff05d3fb23607eeef89567f9cd280b90ca0dbc5c",
         )
+    }
+
+    @Test
+    fun `Keep parser preserves note fields and ignores collaboration annotations`() {
+        val node = ObjectMapper().readTree(
+            """
+            {
+              "title": "Shopping",
+              "listContent": [
+                {"text": "Milk", "isChecked": true},
+                {"text": "Bread", "isChecked": false}
+              ],
+              "color": "BLUE",
+              "isArchived": true,
+              "isPinned": true,
+              "createdTimestampUsec": "1700000000000000",
+              "userEditedTimestampUsec": "1700000100000000",
+              "labels": [{"name": "Home"}, {"name": "Errands"}],
+              "attachments": [{"filePath": "Takeout/Keep/photo.jpg", "mimetype": "image/jpeg"}],
+              "annotations": [{"webLink": {"url": "https://preview.example"}}],
+              "sharees": [{"email": "other@example.com"}]
+            }
+            """.trimIndent(),
+        )
+
+        val note = TakeoutNoteParser().parse(node)
+
+        assertThat(note.type).isEqualTo(NoteType.LIST)
+        assertThat(note.items).containsExactly(TakeoutItem("Milk", true), TakeoutItem("Bread", false))
+        assertThat(note.color).isEqualTo("#dbeafe")
+        assertThat(note.archived).isTrue()
+        assertThat(note.pinned).isTrue()
+        assertThat(note.labels).containsExactly("Home", "Errands")
+        assertThat(note.attachments).containsExactly(TakeoutAttachment("Takeout/Keep/photo.jpg"))
+        assertThat(note.createdAt).isEqualTo(Instant.parse("2023-11-14T22:13:20Z"))
+        assertThat(note.updatedAt).isEqualTo(Instant.parse("2023-11-14T22:15:00Z"))
+    }
+
+    @Test
+    fun `Keep parser preserves text URLs and recognizes empty checklists`() {
+        val mapper = ObjectMapper()
+        val text = TakeoutNoteParser().parse(
+            mapper.readTree("""{"textContent":"See https://example.com/x","color":"DEFAULT"}"""),
+        )
+        val emptyList = TakeoutNoteParser().parse(mapper.readTree("""{"title":"Empty","listContent":[]}"""))
+
+        assertThat(text.type).isEqualTo(NoteType.TEXT)
+        assertThat(text.content).isEqualTo("See https://example.com/x")
+        assertThat(emptyList.type).isEqualTo(NoteType.LIST)
+        assertThat(emptyList.items).isEmpty()
     }
 
     @Test

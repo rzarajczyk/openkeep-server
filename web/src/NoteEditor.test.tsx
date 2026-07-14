@@ -22,6 +22,8 @@ const note: Note = {
   contentRendered: '',
   backgroundColor: '#ffffff',
   archived: false,
+  pinned: false,
+  labels: [],
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
   version: 1,
@@ -216,5 +218,30 @@ describe('NoteEditor', () => {
 
     expect(screen.getByRole('button', { name: 'Add checkboxes' })).toBeVisible()
     expect(screen.getByLabelText('Note content')).toHaveValue('Buy milk\nCall Mum')
+  })
+
+  it('edits native pinning and labels', async () => {
+    const user = userEvent.setup()
+    const onOptimistic = vi.fn()
+
+    render(
+      <NoteEditor
+        note={note}
+        onClose={vi.fn()}
+        onOptimistic={onOptimistic}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Pin note' }))
+    await user.type(screen.getByLabelText('Labels'), 'work, ideas')
+    await user.tab()
+
+    expect(screen.getByRole('button', { name: 'Unpin note' })).toHaveAttribute('aria-pressed', 'true')
+    expect(onOptimistic).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pinned: true, labels: ['work', 'ideas'] }),
+    )
   })
 })

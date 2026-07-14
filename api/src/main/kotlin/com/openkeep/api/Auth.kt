@@ -126,6 +126,13 @@ class UserReconciliationRunner(
         require(properties.maxSyncLimit > 0) { "openkeep.max-sync-limit must be positive" }
         require(properties.attachment.maxFileSize > 0) { "openkeep.attachment.max-file-size must be positive" }
         require(properties.attachment.perUserQuota > 0) { "openkeep.attachment.per-user-quota must be positive" }
+        require(properties.takeoutImport.maxUploadSize > 0) { "openkeep.takeout-import.max-upload-size must be positive" }
+        require(properties.takeoutImport.maxEntries > 0) { "openkeep.takeout-import.max-entries must be positive" }
+        require(properties.takeoutImport.maxEntrySize > 0) { "openkeep.takeout-import.max-entry-size must be positive" }
+        require(properties.takeoutImport.maxUncompressedSize > 0) {
+            "openkeep.takeout-import.max-uncompressed-size must be positive"
+        }
+        require(properties.takeoutImport.maxWarnings > 0) { "openkeep.takeout-import.max-warnings must be positive" }
         val configured = parse(properties.usersJson)
         if (configured.isEmpty()) {
             throw IllegalStateException("OPENKEEP_USERS_JSON must configure at least one user")

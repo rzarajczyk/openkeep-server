@@ -31,6 +31,8 @@ export function noteToWrite(note: Note): NoteWrite {
     contentRaw: note.contentRaw,
     backgroundColor: note.backgroundColor,
     archived: note.archived,
+    pinned: note.pinned,
+    labels: note.labels,
     items: note.items.map((item, index) => ({ ...item, sortOrder: index })),
   }
 }
@@ -97,6 +99,8 @@ export function optimisticNote(
     contentRendered: '',
     backgroundColor: '#ffffff',
     archived,
+    pinned: false,
+    labels: [],
     createdAt: now,
     updatedAt: now,
     version: 0,

@@ -86,6 +86,24 @@ interface NoteItemRepository : JpaRepository<NoteItemEntity, UUID> {
     fun deleteAllByNoteId(@Param("noteId") noteId: UUID): Int
 }
 
+interface LabelRepository : JpaRepository<LabelEntity, UUID> {
+    fun findAllByUserIdAndNameIn(userId: Long, names: Collection<String>): List<LabelEntity>
+}
+
+interface NoteLabelRepository : JpaRepository<NoteLabelEntity, UUID> {
+    @Query(
+        """
+            select l.name from LabelEntity l, NoteLabelEntity nl
+            where nl.noteId = :noteId and nl.labelId = l.id
+            order by lower(l.name), l.name
+        """,
+    )
+    fun findNamesByNoteId(@Param("noteId") noteId: UUID): List<String>
+
+    @Modifying(flushAutomatically = true)
+    fun deleteAllByNoteId(noteId: UUID): Int
+}
+
 interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
     fun findAllByNoteIdOrderByCreatedAtAscIdAsc(noteId: UUID): List<AttachmentEntity>
 
@@ -108,4 +126,8 @@ interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
 
     @Modifying
     fun deleteAllByNoteId(noteId: UUID): Int
+}
+
+interface ImportJobRepository : JpaRepository<ImportJobEntity, UUID> {
+    fun findByIdAndUserId(id: UUID, userId: Long): ImportJobEntity?
 }

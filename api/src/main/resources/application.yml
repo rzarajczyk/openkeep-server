@@ -17,8 +17,8 @@ spring:
     enabled: true
   servlet:
     multipart:
-      max-file-size: ${OPENKEEP_MULTIPART_MAX_FILE_SIZE:25MB}
-      max-request-size: ${OPENKEEP_MULTIPART_MAX_REQUEST_SIZE:26MB}
+      max-file-size: ${OPENKEEP_MULTIPART_MAX_FILE_SIZE:100MB}
+      max-request-size: ${OPENKEEP_MULTIPART_MAX_REQUEST_SIZE:101MB}
       file-size-threshold: 0
   jackson:
     default-property-inclusion: non_null
@@ -52,3 +52,10 @@ openkeep:
     storage-root: ${OPENKEEP_ATTACHMENT_STORAGE_ROOT:./data/attachments}
     max-file-size: ${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:26214400}
     per-user-quota: ${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:1073741824}
+  takeout-import:
+    staging-root: ${OPENKEEP_IMPORT_STAGING_ROOT:./data/imports}
+    max-upload-size: ${OPENKEEP_IMPORT_MAX_UPLOAD_SIZE:104857600}
+    max-entries: ${OPENKEEP_IMPORT_MAX_ENTRIES:5000}
+    max-entry-size: ${OPENKEEP_IMPORT_MAX_ENTRY_SIZE:52428800}
+    max-uncompressed-size: ${OPENKEEP_IMPORT_MAX_UNCOMPRESSED_SIZE:524288000}
+    max-warnings: ${OPENKEEP_IMPORT_MAX_WARNINGS:100}

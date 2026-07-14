@@ -7,6 +7,8 @@ function note(id: string, version: number, archived = false): Note {
     id,
     version,
     archived,
+    pinned: false,
+    labels: [],
     type: 'TEXT',
     title: `Note ${id}`,
     contentRaw: '',
@@ -44,5 +46,24 @@ describe('notesReducer', () => {
 
     expect(selectNotes(state, false).map(({ id }) => id)).toEqual(['active'])
     expect(selectNotes(state, true).map(({ id }) => id)).toEqual(['archived'])
+  })
+
+  it('sorts pinned notes first while preserving group ordering', () => {
+    const state = notesReducer(initialNotesState, {
+      type: 'replace',
+      notes: [
+        note('new-unpinned', 4),
+        { ...note('old-pinned', 1), pinned: true },
+        { ...note('new-pinned', 3), pinned: true },
+        note('old-unpinned', 2),
+      ],
+    })
+
+    expect(selectNotes(state, false).map(({ id }) => id)).toEqual([
+      'new-pinned',
+      'old-pinned',
+      'new-unpinned',
+      'old-unpinned',
+    ])
   })
 })

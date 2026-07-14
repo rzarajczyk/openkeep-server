@@ -14,6 +14,7 @@ import java.util.UUID
 
 enum class NoteType { TEXT, LIST }
 enum class AttachmentKind { IMAGE, FILE }
+enum class ImportJobStatus { VALIDATING, RUNNING, COMPLETED, FAILED }
 
 @Entity
 @Table(name = "users")
@@ -70,6 +71,8 @@ class NoteEntity(
     var backgroundColor: String = "default",
     @Column(name = "is_archived", nullable = false)
     var archived: Boolean = false,
+    @Column(name = "is_pinned", nullable = false)
+    var pinned: Boolean = false,
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)
@@ -79,6 +82,30 @@ class NoteEntity(
     var version: Long = 0,
     @Column(name = "deleted_at")
     var deletedAt: Instant? = null,
+)
+
+@Entity
+@Table(name = "labels")
+class LabelEntity(
+    @Id
+    var id: UUID = UUID.randomUUID(),
+    @Column(name = "user_id", nullable = false)
+    var userId: Long = 0,
+    @Column(nullable = false, length = 500)
+    var name: String = "",
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
+)
+
+@Entity
+@Table(name = "note_labels")
+class NoteLabelEntity(
+    @Id
+    var id: UUID = UUID.randomUUID(),
+    @Column(name = "note_id", nullable = false)
+    var noteId: UUID = UUID.randomUUID(),
+    @Column(name = "label_id", nullable = false)
+    var labelId: UUID = UUID.randomUUID(),
 )
 
 @Entity
@@ -116,4 +143,36 @@ class AttachmentEntity(
     var sizeBytes: Long = 0,
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
+)
+
+@Entity
+@Table(name = "import_jobs")
+class ImportJobEntity(
+    @Id
+    var id: UUID = UUID.randomUUID(),
+    @Column(name = "user_id", nullable = false)
+    var userId: Long = 0,
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    var status: ImportJobStatus = ImportJobStatus.VALIDATING,
+    @Column(name = "total_notes", nullable = false)
+    var totalNotes: Int = 0,
+    @Column(name = "processed_notes", nullable = false)
+    var processedNotes: Int = 0,
+    @Column(name = "imported_notes", nullable = false)
+    var importedNotes: Int = 0,
+    @Column(name = "skipped_notes", nullable = false)
+    var skippedNotes: Int = 0,
+    @Column(name = "warning_count", nullable = false)
+    var warningCount: Int = 0,
+    @Column(name = "warnings_json", nullable = false, columnDefinition = "text")
+    var warningsJson: String = "[]",
+    @Column(name = "error_message", columnDefinition = "text")
+    var errorMessage: String? = null,
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
+    @Column(name = "started_at")
+    var startedAt: Instant? = null,
+    @Column(name = "completed_at")
+    var completedAt: Instant? = null,
 )
