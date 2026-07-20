@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.boot.actuate.health.HealthEndpoint
 import org.springframework.boot.actuate.health.Status
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
@@ -35,6 +36,7 @@ class ApiException(
     val status: HttpStatus,
     val code: String,
     override val message: String,
+    val retryAfterSeconds: Long? = null,
 ) : RuntimeException(message)
 
 data class ApiError(
@@ -95,8 +97,18 @@ class ApiExceptionHandler {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @ExceptionHandler(ApiException::class)
-    fun api(ex: ApiException, request: HttpServletRequest) =
-        response(ex.status, ex.code, ex.message, request.requestURI)
+    fun api(ex: ApiException, request: HttpServletRequest): ResponseEntity<ApiError> {
+        val builder = ResponseEntity.status(ex.status)
+        ex.retryAfterSeconds?.let { builder.header(HttpHeaders.RETRY_AFTER, it.toString()) }
+        return builder.body(
+            ApiError(
+                status = ex.status.value(),
+                code = ex.code,
+                message = ex.message,
+                path = request.requestURI,
+            ),
+        )
+    }
 
     @ExceptionHandler(MethodArgumentNotValidException::class, BindException::class)
     fun validation(ex: Exception, request: HttpServletRequest): ResponseEntity<ApiError> {

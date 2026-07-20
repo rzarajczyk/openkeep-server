@@ -2,10 +2,15 @@ package com.openkeep.api
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito
+import org.springframework.http.HttpStatus
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
+import java.time.Clock
+import java.time.Duration
 import java.time.Instant
+import java.time.ZoneOffset
 
 class CoreUnitTests {
     private val markdown = MarkdownService()
@@ -33,6 +38,55 @@ class CoreUnitTests {
         assertThat(AuthService.hashToken("opaque-token")).isEqualTo(
             "84d3f23da9b5f51b3269566eff05d3fb23607eeef89567f9cd280b90ca0dbc5c",
         )
+    }
+
+    @Test
+    fun `login rate limiter blocks after max attempts and resets after the window`() {
+        val start = Instant.parse("2026-07-20T12:00:00Z")
+        val clock = MutableClock(start)
+        val limiter = LoginRateLimiter(
+            OpenKeepProperties(
+                loginRateLimit = OpenKeepProperties.LoginRateLimitProperties(
+                    maxAttemptsPerIp = 3,
+                    maxAttemptsPerLogin = 100,
+                    window = Duration.ofMinutes(1),
+                ),
+            ),
+            clock,
+        )
+
+        repeat(3) { limiter.check("203.0.113.10", "alice") }
+        assertThatThrownBy { limiter.check("203.0.113.10", "alice") }
+            .isInstanceOf(ApiException::class.java)
+            .satisfies({ ex ->
+                val api = ex as ApiException
+                assertThat(api.status).isEqualTo(HttpStatus.TOO_MANY_REQUESTS)
+                assertThat(api.code).isEqualTo("rate_limited")
+                assertThat(api.retryAfterSeconds).isEqualTo(60)
+            })
+
+        clock.instant = start.plusSeconds(61)
+        limiter.check("203.0.113.10", "alice")
+    }
+
+    @Test
+    fun `login rate limiter throttles by login name across different IPs`() {
+        val limiter = LoginRateLimiter(
+            OpenKeepProperties(
+                loginRateLimit = OpenKeepProperties.LoginRateLimitProperties(
+                    maxAttemptsPerIp = 100,
+                    maxAttemptsPerLogin = 2,
+                    window = Duration.ofMinutes(1),
+                ),
+            ),
+        )
+
+        limiter.check("203.0.113.1", "Alice")
+        limiter.check("203.0.113.2", "alice")
+        assertThatThrownBy { limiter.check("203.0.113.3", "ALICE") }
+            .isInstanceOf(ApiException::class.java)
+            .extracting("code")
+            .isEqualTo("rate_limited")
     }
 
     @Test
@@ -186,4 +240,10 @@ class CoreUnitTests {
         assertThat(alice.passwordHash).isEqualTo(hash)
         Mockito.verify(repository, Mockito.never()).save(Mockito.any(UserEntity::class.java))
     }
+}
+
+private class MutableClock(var instant: Instant) : Clock() {
+    override fun getZone() = ZoneOffset.UTC
+    override fun withZone(zone: java.time.ZoneId) = this
+    override fun instant() = instant
 }

@@ -36,6 +36,8 @@ class OpenKeepPostgres(image: String) : PostgreSQLContainer<OpenKeepPostgres>(im
         "openkeep.token-ttl=1h",
         "openkeep.attachment.max-file-size=64",
         "openkeep.attachment.per-user-quota=32",
+        "openkeep.login-rate-limit.max-attempts-per-ip=10000",
+        "openkeep.login-rate-limit.max-attempts-per-login=10000",
     ],
 )
 @AutoConfigureMockMvc

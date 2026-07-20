@@ -20,9 +20,18 @@ data class OpenKeepProperties(
     var usersJson: String = "",
     var tokenTtl: Duration = Duration.ofDays(30),
     var maxSyncLimit: Int = 200,
+    var loginRateLimit: LoginRateLimitProperties = LoginRateLimitProperties(),
     var attachment: AttachmentProperties = AttachmentProperties(),
     var takeoutImport: TakeoutImportProperties = TakeoutImportProperties(),
 ) {
+    data class LoginRateLimitProperties(
+        /** Max login attempts per client IP within [window]. */
+        var maxAttemptsPerIp: Int = 10,
+        /** Max login attempts per login name within [window]. */
+        var maxAttemptsPerLogin: Int = 5,
+        var window: Duration = Duration.ofMinutes(1),
+    )
+
     data class AttachmentProperties(
         var storageRoot: Path = Path.of("./data/attachments"),
         var maxFileSize: Long = 25L * 1024 * 1024,
@@ -45,6 +54,9 @@ data class OpenKeepProperties(
 class AppConfig {
     @Bean
     fun passwordEncoder(): PasswordEncoder = BCryptPasswordEncoder(12)
+
+    @Bean
+    fun loginRateLimiter(properties: OpenKeepProperties) = LoginRateLimiter(properties)
 
     @Bean
     fun securityFilterChain(

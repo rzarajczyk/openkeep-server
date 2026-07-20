@@ -48,6 +48,10 @@ openkeep:
   users-json: ${OPENKEEP_USERS_JSON:}
   token-ttl: ${OPENKEEP_TOKEN_TTL:30d}
   max-sync-limit: ${OPENKEEP_MAX_SYNC_LIMIT:200}
+  login-rate-limit:
+    max-attempts-per-ip: ${OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_IP:10}
+    max-attempts-per-login: ${OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_LOGIN:5}
+    window: ${OPENKEEP_LOGIN_RATE_LIMIT_WINDOW:1m}
   attachment:
     storage-root: ${OPENKEEP_ATTACHMENT_STORAGE_ROOT:./data/attachments}
     max-file-size: ${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:26214400}

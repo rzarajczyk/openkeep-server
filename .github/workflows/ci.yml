@@ -55,6 +55,7 @@ jobs:
   docker:
     name: Docker images
     needs: [api-tests, web-tests]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -23,6 +23,9 @@ The API listens on port 8080. OpenAPI is available at `/openapi.json` and health
 - `OPENKEEP_USERS_JSON` — required JSON array of `{login,password}` objects
 - `OPENKEEP_TOKEN_TTL` — bearer-token lifetime, default `30d`
 - `OPENKEEP_MAX_SYNC_LIMIT` — maximum notes/search page size, default `200`
+- `OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_IP` — max `/auth/login` attempts per client IP per window, default `10`
+- `OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_LOGIN` — max `/auth/login` attempts per login name per window, default `5`
+- `OPENKEEP_LOGIN_RATE_LIMIT_WINDOW` — rate-limit window, default `1m`
 - `OPENKEEP_ATTACHMENT_STORAGE_ROOT` — attachment volume path, default `./data/attachments`
 - `OPENKEEP_ATTACHMENT_MAX_FILE_SIZE` — application-level upload limit in bytes, default 25 MiB
 - `OPENKEEP_MULTIPART_MAX_FILE_SIZE` — servlet upload limit, default `25MB`

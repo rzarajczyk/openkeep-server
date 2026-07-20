@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 
@@ -120,10 +121,19 @@ class UserReconciliationRunner(
     private val reconciliationService: UserReconciliationService,
 ) : ApplicationRunner {
     override fun run(args: ApplicationArguments) {
-        require(!properties.tokenTtl.isNegative && !properties.tokenTtl.isZero) {
+        require(properties.tokenTtl.isNegative.not() && properties.tokenTtl.isZero.not()) {
             "openkeep.token-ttl must be positive"
         }
         require(properties.maxSyncLimit > 0) { "openkeep.max-sync-limit must be positive" }
+        require(properties.loginRateLimit.maxAttemptsPerIp > 0) {
+            "openkeep.login-rate-limit.max-attempts-per-ip must be positive"
+        }
+        require(properties.loginRateLimit.maxAttemptsPerLogin > 0) {
+            "openkeep.login-rate-limit.max-attempts-per-login must be positive"
+        }
+        require(!properties.loginRateLimit.window.isNegative && !properties.loginRateLimit.window.isZero) {
+            "openkeep.login-rate-limit.window must be positive"
+        }
         require(properties.attachment.maxFileSize > 0) { "openkeep.attachment.max-file-size must be positive" }
         require(properties.attachment.perUserQuota > 0) { "openkeep.attachment.per-user-quota must be positive" }
         require(properties.takeoutImport.maxUploadSize > 0) { "openkeep.takeout-import.max-upload-size must be positive" }
@@ -236,6 +246,64 @@ class AuthService(
     }
 }
 
+/**
+ * Fixed-window rate limiter for login attempts.
+ * Limits by client IP and by login name so both single-IP floods and
+ * distributed guessing against one account are throttled.
+ */
+class LoginRateLimiter(
+    private val properties: OpenKeepProperties,
+    private val clock: Clock = Clock.systemUTC(),
+) {
+    private val buckets = java.util.concurrent.ConcurrentHashMap<String, Window>()
+
+    fun check(clientIp: String, login: String) {
+        val config = properties.loginRateLimit
+        val retryAfter = consume("ip:$clientIp", config.maxAttemptsPerIp, config.window)
+            ?: consume("login:${login.lowercase()}", config.maxAttemptsPerLogin, config.window)
+        if (retryAfter != null) {
+            throw ApiException(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "rate_limited",
+                "Too many login attempts. Try again later.",
+                retryAfterSeconds = retryAfter,
+            )
+        }
+    }
+
+    /** Returns remaining seconds until the window resets when limited; null when allowed. */
+    fun consume(key: String, maxAttempts: Int, window: Duration): Long? {
+        if (maxAttempts <= 0) return null
+        val now = clock.instant()
+        val windowMillis = window.toMillis().coerceAtLeast(1)
+        var retryAfterSeconds: Long? = null
+        buckets.compute(key) { _, existing ->
+            if (existing == null || now.isAfter(existing.start.plusMillis(windowMillis))) {
+                Window(now)
+            } else {
+                val count = existing.count.incrementAndGet()
+                if (count > maxAttempts) {
+                    val elapsed = java.time.Duration.between(existing.start, now).toMillis()
+                    retryAfterSeconds = ((windowMillis - elapsed + 999) / 1000).coerceAtLeast(1)
+                }
+                existing
+            }
+        }
+        maybePrune(now, windowMillis)
+        return retryAfterSeconds
+    }
+
+    private fun maybePrune(now: Instant, windowMillis: Long) {
+        if (buckets.size < 1_000) return
+        buckets.entries.removeIf { (_, window) -> now.isAfter(window.start.plusMillis(windowMillis * 2)) }
+    }
+
+    private class Window(
+        val start: Instant,
+        val count: java.util.concurrent.atomic.AtomicInteger = java.util.concurrent.atomic.AtomicInteger(1),
+    )
+}
+
 @Component
 class TokenAuthenticationFilter(private val authService: AuthService) : OncePerRequestFilter() {
     override fun doFilterInternal(
@@ -258,9 +326,18 @@ class TokenAuthenticationFilter(private val authService: AuthService) : OncePerR
 
 @RestController
 @RequestMapping("/auth")
-class AuthController(private val authService: AuthService) {
+class AuthController(
+    private val authService: AuthService,
+    private val loginRateLimiter: LoginRateLimiter,
+) {
     @PostMapping("/login")
-    fun login(@Valid @RequestBody request: LoginRequest) = authService.login(request)
+    fun login(
+        @Valid @RequestBody request: LoginRequest,
+        httpRequest: HttpServletRequest,
+    ): LoginResponse {
+        loginRateLimiter.check(clientIp(httpRequest), request.login.trim())
+        return authService.login(request)
+    }
 
     @PostMapping("/logout")
     fun logout(authentication: UsernamePasswordAuthenticationToken): ResponseEntity<Void> {
@@ -268,6 +345,9 @@ class AuthController(private val authService: AuthService) {
         authService.logout(principal.tokenHash)
         return ResponseEntity.noContent().build()
     }
+
+    private fun clientIp(request: HttpServletRequest): String =
+        request.remoteAddr?.takeIf { it.isNotBlank() } ?: "unknown"
 }
 
 @RestController
