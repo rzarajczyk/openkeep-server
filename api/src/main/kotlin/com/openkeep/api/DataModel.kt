@@ -121,6 +121,8 @@ class NoteItemEntity(
     var checked: Boolean = false,
     @Column(name = "sort_order", nullable = false)
     var sortOrder: Int = 0,
+    @Column(nullable = false)
+    var indent: Int = 0,
 )
 
 @Entity

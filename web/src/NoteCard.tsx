@@ -53,11 +53,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
           .map((attachment) => (
             <AttachmentView attachment={attachment} compact key={attachment.id} />
           ))}
-        {note.title ? (
-          <h2>{note.title}</h2>
-        ) : (
-          <span className="card-untitled">Untitled note</span>
-        )}
+        {note.title ? <h2>{note.title}</h2> : null}
         {note.type === 'TEXT' ? (
           note.contentRendered ? (
             <div
@@ -70,7 +66,11 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
         ) : (
           <ul className="card-checklist" aria-label="Checklist">
             {note.items.slice(0, 8).map((item) => (
-              <li className={item.checked ? 'checked' : ''} key={item.id}>
+              <li
+                className={item.checked ? 'checked' : ''}
+                data-indent={item.indent ?? 0}
+                key={item.id}
+              >
                 <span aria-hidden="true">{item.checked ? '✓' : ''}</span>
                 <span>{linkify(item.text)}</span>
               </li>

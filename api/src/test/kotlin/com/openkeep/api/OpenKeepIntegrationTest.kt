@@ -84,6 +84,24 @@ class OpenKeepIntegrationTest {
             .andReturn()
 
         val noteId = objectMapper.readTree(createResult.response.contentAsString).get("id").asText()
+        val createdVersion = objectMapper.readTree(createResult.response.contentAsString).get("version").asLong()
+
+        mockMvc.perform(
+            patch("/notes/$noteId")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "version": $createdVersion,
+                      "labels": ["Private", "Work"]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.labels[0]").value("Private"))
+            .andExpect(jsonPath("$.labels[1]").value("Work"))
 
         mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $bobToken"))
             .andExpect(status().isNotFound)
@@ -342,7 +360,7 @@ class OpenKeepIntegrationTest {
         assertThat(matches).allSatisfy {
             assertThat(it.path("pinned").asBoolean()).isTrue()
             assertThat(it.path("archived").asBoolean()).isTrue()
-            assertThat(it.path("backgroundColor").asText()).isEqualTo("#dcfce7")
+            assertThat(it.path("backgroundColor").asText()).isEqualTo("#ccff90")
             assertThat(it.path("labels").map { label -> label.asText() }).containsExactly("Takeout")
             assertThat(it.path("attachments").size()).isEqualTo(1)
             assertThat(it.path("contentRaw").asText()).contains("https://example.com/imported")

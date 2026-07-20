@@ -50,7 +50,7 @@ data class ImportJobResponse(
     val completedAt: Instant?,
 )
 
-data class TakeoutItem(val text: String, val checked: Boolean)
+data class TakeoutItem(val text: String, val checked: Boolean, val indent: Int = 0)
 data class TakeoutAttachment(val archivePath: String)
 data class TakeoutNote(
     val type: NoteType,
@@ -95,7 +95,7 @@ class TakeoutNoteParser {
         val isList = node.path("listContent").isArray
         val items = if (isList) {
             buildList {
-                node.path("listContent").forEach { addListItem(it, this, warnings) }
+                node.path("listContent").forEach { addListItem(it, this, warnings, depth = 0) }
             }
         } else {
             emptyList()
@@ -143,11 +143,19 @@ class TakeoutNoteParser {
         )
     }
 
-    private fun addListItem(node: JsonNode, target: MutableList<TakeoutItem>, warnings: MutableList<String>) {
+    private fun addListItem(
+        node: JsonNode,
+        target: MutableList<TakeoutItem>,
+        warnings: MutableList<String>,
+        depth: Int,
+    ) {
         val text = node.path("text").takeIf(JsonNode::isTextual)?.asText().orEmpty()
         if (text.length > 10_000) warnings += "A checklist item exceeded 10000 characters and was truncated"
-        target += TakeoutItem(text.take(10_000), node.path("isChecked").asBoolean(false))
-        node.path("childListItems").takeIf(JsonNode::isArray)?.forEach { addListItem(it, target, warnings) }
+        val indent = depth.coerceAtLeast(0).coerceAtMost(NoteService.MAX_ITEM_INDENT)
+        target += TakeoutItem(text.take(10_000), node.path("isChecked").asBoolean(false), indent)
+        node.path("childListItems").takeIf(JsonNode::isArray)?.forEach {
+            addListItem(it, target, warnings, depth + 1)
+        }
     }
 
     private fun timestamp(node: JsonNode): Instant? {
@@ -163,30 +171,30 @@ class TakeoutNoteParser {
         private val KEEP_COLORS = mapOf(
             "DEFAULT" to "#ffffff",
             "WHITE" to "#ffffff",
-            "RED" to "#fee2e2",
-            "CORAL" to "#fee2e2",
-            "PINK" to "#fee2e2",
-            "BLOSSOM" to "#fee2e2",
-            "ORANGE" to "#ffedd5",
-            "PEACH" to "#ffedd5",
-            "YELLOW" to "#fef3c7",
-            "SAND" to "#fef3c7",
-            "BROWN" to "#fef3c7",
-            "GREEN" to "#dcfce7",
-            "TEAL" to "#dcfce7",
-            "MINT" to "#dcfce7",
-            "SAGE" to "#dcfce7",
-            "BLUE" to "#dbeafe",
-            "DARK_BLUE" to "#dbeafe",
-            "CERULEAN" to "#dbeafe",
-            "FOG" to "#dbeafe",
-            "PURPLE" to "#ede9fe",
-            "DUSK" to "#ede9fe",
-            "GRAY" to "#f3f4f6",
-            "GREY" to "#f3f4f6",
-            "STORM" to "#f3f4f6",
-            "CLAY" to "#f3f4f6",
             "CHALK" to "#ffffff",
+            "RED" to "#f28b82",
+            "CORAL" to "#f28b82",
+            "ORANGE" to "#fbbc04",
+            "PEACH" to "#fbbc04",
+            "YELLOW" to "#fff475",
+            "SAND" to "#fff475",
+            "GREEN" to "#ccff90",
+            "MINT" to "#ccff90",
+            "SAGE" to "#ccff90",
+            "TEAL" to "#a7ffeb",
+            "BLUE" to "#cbf0f8",
+            "FOG" to "#cbf0f8",
+            "CERULEAN" to "#aecbfa",
+            "DARK_BLUE" to "#aecbfa",
+            "PURPLE" to "#d7aefb",
+            "DUSK" to "#d7aefb",
+            "PINK" to "#fdcfe8",
+            "BLOSSOM" to "#fdcfe8",
+            "BROWN" to "#e6c9a8",
+            "GRAY" to "#e8eaed",
+            "GREY" to "#e8eaed",
+            "STORM" to "#e8eaed",
+            "CLAY" to "#e8eaed",
         )
     }
 }
@@ -221,7 +229,13 @@ class TakeoutImportPersistence(
         if (note.items.isNotEmpty()) {
             noteItemRepository.saveAll(
                 note.items.mapIndexed { index, item ->
-                    NoteItemEntity(noteId = entity.id, text = item.text, checked = item.checked, sortOrder = index)
+                    NoteItemEntity(
+                        noteId = entity.id,
+                        text = item.text,
+                        checked = item.checked,
+                        sortOrder = index,
+                        indent = item.indent,
+                    )
                 },
             )
         }

@@ -108,6 +108,7 @@ export function AttachmentView({
               onClick={remove}
               disabled={deleting}
               aria-label={`Delete ${attachment.originalFilename}`}
+              title={`Delete ${attachment.originalFilename}`}
             >
               {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
             </button>
@@ -136,6 +137,7 @@ export function AttachmentView({
         onClick={download}
         disabled={loading || downloading}
         aria-label={`Download ${attachment.originalFilename}`}
+        title={`Download ${attachment.originalFilename}`}
       >
         {loading || downloading ? <LoaderCircle className="spin" /> : <Download />}
       </button>
@@ -146,6 +148,7 @@ export function AttachmentView({
           onClick={remove}
           disabled={deleting}
           aria-label={`Delete ${attachment.originalFilename}`}
+          title={`Delete ${attachment.originalFilename}`}
         >
           {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
         </button>

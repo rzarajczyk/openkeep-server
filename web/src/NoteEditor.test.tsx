@@ -202,8 +202,8 @@ describe('NoteEditor', () => {
           ...note,
           type: 'LIST',
           items: [
-            { id: 'first', text: 'Buy milk', checked: false, sortOrder: 0 },
-            { id: 'second', text: 'Call Mum', checked: true, sortOrder: 1 },
+            { id: 'first', text: 'Buy milk', checked: false, sortOrder: 0, indent: 0 },
+            { id: 'second', text: 'Call Mum', checked: true, sortOrder: 1, indent: 0 },
           ],
         }}
         onClose={vi.fn()}
@@ -220,6 +220,46 @@ describe('NoteEditor', () => {
     expect(screen.getByLabelText('Note content')).toHaveValue('Buy milk\nCall Mum')
   })
 
+  it('reorders checklist items from the drag-handle menu', async () => {
+    const user = userEvent.setup()
+    const onOptimistic = vi.fn()
+
+    render(
+      <NoteEditor
+        note={{
+          ...note,
+          type: 'LIST',
+          items: [
+            { id: 'first', text: 'Buy milk', checked: false, sortOrder: 0, indent: 0 },
+            { id: 'second', text: 'Call Mum', checked: true, sortOrder: 1, indent: 0 },
+          ],
+        }}
+        onClose={vi.fn()}
+        onOptimistic={onOptimistic}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Checklist item 2 actions' }))
+    expect(screen.getByRole('menuitem', { name: 'Move up' })).toBeEnabled()
+    expect(screen.getByRole('menuitem', { name: 'Move down' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: 'Indent' })).toBeEnabled()
+    expect(screen.getByRole('menuitem', { name: 'Deindent' })).toBeDisabled()
+
+    await user.click(screen.getByRole('menuitem', { name: 'Move up' }))
+
+    expect(onOptimistic).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({ id: 'second', text: 'Call Mum', sortOrder: 0 }),
+          expect.objectContaining({ id: 'first', text: 'Buy milk', sortOrder: 1 }),
+        ],
+      }),
+    )
+  })
+
   it('edits native pinning and labels', async () => {
     const user = userEvent.setup()
     const onOptimistic = vi.fn()
@@ -227,6 +267,7 @@ describe('NoteEditor', () => {
     render(
       <NoteEditor
         note={note}
+        knownLabels={['ideas', 'personal']}
         onClose={vi.fn()}
         onOptimistic={onOptimistic}
         onCanonical={vi.fn()}
@@ -236,12 +277,72 @@ describe('NoteEditor', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Pin note' }))
-    await user.type(screen.getByLabelText('Labels'), 'work, ideas')
-    await user.tab()
+    await user.click(screen.getByRole('button', { name: 'Add label' }))
+    await user.click(screen.getByRole('menuitemcheckbox', { name: 'ideas' }))
+    await user.click(screen.getByRole('button', { name: 'Add label' }))
+    await user.type(screen.getByLabelText('New label'), 'work')
+    await user.click(screen.getByRole('button', { name: 'Create' }))
 
     expect(screen.getByRole('button', { name: 'Unpin note' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('menuitemcheckbox', { name: 'work' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
     expect(onOptimistic).toHaveBeenLastCalledWith(
-      expect.objectContaining({ pinned: true, labels: ['work', 'ideas'] }),
+      expect.objectContaining({ pinned: true, labels: ['ideas', 'work'] }),
+    )
+  })
+
+  it('keeps created labels in the menu and rejects duplicates', async () => {
+    const user = userEvent.setup()
+    const onOptimistic = vi.fn()
+
+    render(
+      <NoteEditor
+        note={{ ...note, labels: ['work'] }}
+        knownLabels={['work', 'home']}
+        onClose={vi.fn()}
+        onOptimistic={onOptimistic}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Add label' }))
+    expect(screen.getByRole('menuitemcheckbox', { name: 'work' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.getByRole('menuitemcheckbox', { name: 'home' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+
+    await user.type(screen.getByLabelText('New label'), 'Work')
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('That label is already on this note.')
+
+    await user.clear(screen.getByLabelText('New label'))
+    await user.type(screen.getByLabelText('New label'), 'errands')
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+    expect(screen.getByRole('menuitemcheckbox', { name: 'errands' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Remove label work' }))
+    expect(onOptimistic).toHaveBeenLastCalledWith(
+      expect.objectContaining({ labels: expect.arrayContaining(['errands']) }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Add label' }))
+    expect(screen.getByRole('menuitemcheckbox', { name: 'work' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+    expect(screen.getByRole('menuitemcheckbox', { name: 'errands' })).toHaveAttribute(
+      'aria-checked',
+      'true',
     )
   })
 })

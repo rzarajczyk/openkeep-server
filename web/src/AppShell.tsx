@@ -10,12 +10,14 @@ import {
   RefreshCw,
   Search,
   StickyNote,
+  Tag,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { api } from './api'
 import { NoteCard } from './NoteCard'
 import { NoteEditor } from './NoteEditor'
+import { NotesMasonry } from './NotesMasonry'
 import { KeepImportDialog } from './KeepImportDialog'
 import {
   initialNotesState,
@@ -38,6 +40,7 @@ interface SyncCursor {
 export function AppShell({ user, onLogout }: AppShellProps) {
   const [state, dispatch] = useReducer(notesReducer, initialNotesState)
   const [archived, setArchived] = useState(false)
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [syncing, setSyncing] = useState(false)
@@ -195,7 +198,7 @@ export function AppShell({ user, onLogout }: AppShellProps) {
         backgroundColor: '#ffffff',
         archived: false,
         pinned: false,
-        labels: [],
+        labels: selectedLabel ? [selectedLabel] : [],
         items: [],
       })
       dispatch({ type: 'upsert', note })
@@ -263,10 +266,57 @@ export function AppShell({ user, onLogout }: AppShellProps) {
     } else {
       notes = selectNotes(state, archived)
     }
+    if (selectedLabel) {
+      const needle = selectedLabel.toLowerCase()
+      notes = notes.filter((note) =>
+        note.labels.some((label) => label.toLowerCase() === needle),
+      )
+    }
     return [...notes].sort((a, b) => Number(b.pinned) - Number(a.pinned))
-  }, [archived, searchResults, state])
+  }, [archived, searchResults, selectedLabel, state])
+
+  const pinnedNotes = useMemo(() => visibleNotes.filter((note) => note.pinned), [visibleNotes])
+  const otherNotes = useMemo(() => visibleNotes.filter((note) => !note.pinned), [visibleNotes])
+  const [knownLabels, setKnownLabels] = useState<string[]>([])
+  useEffect(() => {
+    setKnownLabels((previous) => {
+      const names = new Map<string, string>()
+      for (const label of previous) {
+        names.set(label.toLowerCase(), label)
+      }
+      let changed = false
+      for (const note of Object.values(state.byId)) {
+        for (const label of note.labels) {
+          const key = label.toLowerCase()
+          if (!names.has(key)) {
+            names.set(key, label)
+            changed = true
+          }
+        }
+      }
+      if (!changed && names.size === previous.length) return previous
+      return [...names.values()].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' }),
+      )
+    })
+  }, [state.byId])
 
   const selectedNote = selectedId ? state.byId[selectedId] : null
+
+  function renderNoteCard(note: Note) {
+    return (
+      <NoteCard
+        key={note.id}
+        note={note}
+        onOpen={(selected) => {
+          setPendingNewNoteId(null)
+          setSelectedId(selected.id)
+        }}
+        onArchive={toggleArchive}
+        onDelete={deleteNote}
+      />
+    )
+  }
 
   return (
     <div className="app-shell">
@@ -355,21 +405,50 @@ export function AppShell({ user, onLogout }: AppShellProps) {
 
       <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
         <nav aria-label="Notes">
-          <button
-            type="button"
-            className={!archived ? 'active' : ''}
-            onClick={() => {
-              setArchived(false)
-              setNavOpen(false)
-            }}
-          >
-            <StickyNote aria-hidden="true" /> Notes
-          </button>
+          <div className="nav-group">
+            <button
+              type="button"
+              className={!archived && !selectedLabel ? 'active' : ''}
+              onClick={() => {
+                setArchived(false)
+                setSelectedLabel(null)
+                setNavOpen(false)
+              }}
+            >
+              <StickyNote aria-hidden="true" /> Notes
+            </button>
+            {knownLabels.length > 0 && (
+              <div className="nav-subitems" role="group" aria-label="Labels">
+                {knownLabels.map((label) => {
+                  const active =
+                    !archived &&
+                    selectedLabel !== null &&
+                    selectedLabel.toLowerCase() === label.toLowerCase()
+                  return (
+                    <button
+                      type="button"
+                      key={label}
+                      className={`nav-subitem${active ? ' active' : ''}`}
+                      onClick={() => {
+                        setArchived(false)
+                        setSelectedLabel(label)
+                        setNavOpen(false)
+                      }}
+                    >
+                      <Tag aria-hidden="true" />
+                      <span>{label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className={archived ? 'active' : ''}
             onClick={() => {
               setArchived(true)
+              setSelectedLabel(null)
               setNavOpen(false)
             }}
           >
@@ -405,7 +484,13 @@ export function AppShell({ user, onLogout }: AppShellProps) {
         <div className="workspace-heading">
           <div>
             <span className="eyebrow">{query ? 'Search results' : 'Workspace'}</span>
-            <h1>{archived ? 'Archive' : 'Your notes'}</h1>
+            <h1>
+              {archived
+                ? 'Archive'
+                : selectedLabel
+                  ? selectedLabel
+                  : 'Your notes'}
+            </h1>
           </div>
           {!archived && (
             <div className="create-actions" aria-label="Create note">
@@ -441,15 +526,25 @@ export function AppShell({ user, onLogout }: AppShellProps) {
         {!loading && !loadError && visibleNotes.length === 0 && (
           <div className="state-panel empty-state">
             <span className="empty-icon" aria-hidden="true">
-              {archived ? <Archive /> : <StickyNote />}
+              {archived ? <Archive /> : selectedLabel ? <Tag /> : <StickyNote />}
             </span>
-            <h2>{query ? 'No matching notes' : archived ? 'Your archive is empty' : 'A quiet place for your thoughts'}</h2>
+            <h2>
+              {query
+                ? 'No matching notes'
+                : archived
+                  ? 'Your archive is empty'
+                  : selectedLabel
+                    ? `No notes labeled “${selectedLabel}”`
+                    : 'A quiet place for your thoughts'}
+            </h2>
             <p>
               {query
                 ? 'Try a different word or clear your search.'
                 : archived
                   ? 'Archived notes will stay safely tucked away here.'
-                : 'Create a note to get started.'}
+                  : selectedLabel
+                    ? 'Create a note or add this label to an existing one.'
+                    : 'Create a note to get started.'}
             </p>
             {!archived && !query && (
               <button type="button" className="primary-button" onClick={() => void createNote()}>
@@ -459,26 +554,46 @@ export function AppShell({ user, onLogout }: AppShellProps) {
           </div>
         )}
         {!loading && visibleNotes.length > 0 && (
-          <section className="notes-grid" aria-label={archived ? 'Archived notes' : 'Notes'}>
-            {visibleNotes.map((note) => (
-              <NoteCard
-                key={note.id}
-                note={note}
-                onOpen={(selected) => {
-                  setPendingNewNoteId(null)
-                  setSelectedId(selected.id)
-                }}
-                onArchive={toggleArchive}
-                onDelete={deleteNote}
-              />
-            ))}
-          </section>
+          <div
+            className="notes-board"
+            aria-label={
+              archived
+                ? 'Archived notes'
+                : selectedLabel
+                  ? `Notes labeled ${selectedLabel}`
+                  : 'Notes'
+            }
+          >
+            {pinnedNotes.length > 0 && (
+              <section className="notes-section" aria-labelledby="pinned-notes-heading">
+                <h2 id="pinned-notes-heading" className="notes-section-title">
+                  Pinned
+                </h2>
+                <NotesMasonry notes={pinnedNotes} renderNote={renderNoteCard} />
+              </section>
+            )}
+            {otherNotes.length > 0 && (
+              <section
+                className="notes-section"
+                aria-labelledby={pinnedNotes.length > 0 ? 'other-notes-heading' : undefined}
+                aria-label={pinnedNotes.length > 0 ? undefined : archived ? 'Archived notes' : 'Notes'}
+              >
+                {pinnedNotes.length > 0 && (
+                  <h2 id="other-notes-heading" className="notes-section-title">
+                    Others
+                  </h2>
+                )}
+                <NotesMasonry notes={otherNotes} renderNote={renderNoteCard} />
+              </section>
+            )}
+          </div>
         )}
       </main>
 
       {selectedNote && (
         <NoteEditor
           note={selectedNote}
+          knownLabels={knownLabels}
           cancelIfEmpty={pendingNewNoteId === selectedNote.id}
           onClose={() => {
             setSelectedId(null)

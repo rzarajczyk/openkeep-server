@@ -34,6 +34,7 @@ data class NoteItemRequest(
     val text: String,
     val checked: Boolean = false,
     val sortOrder: Int? = null,
+    val indent: Int? = null,
 )
 
 data class CreateNoteRequest(
@@ -69,7 +70,13 @@ data class UpdateNoteRequest(
     val version: Long? = null,
 )
 
-data class NoteItemResponse(val id: UUID, val text: String, val checked: Boolean, val sortOrder: Int)
+data class NoteItemResponse(
+    val id: UUID,
+    val text: String,
+    val checked: Boolean,
+    val sortOrder: Int,
+    val indent: Int,
+)
 data class AttachmentResponse(
     val id: UUID,
     val kind: AttachmentKind,
@@ -133,6 +140,10 @@ class NoteService(
     private val attachmentStorage: AttachmentStorage,
     private val properties: OpenKeepProperties,
 ) {
+    companion object {
+        const val MAX_ITEM_INDENT = 5
+    }
+
     @Transactional
     fun create(userId: Long, request: CreateNoteRequest): NoteResponse {
         validateState(request.type, request.contentRaw, request.items)
@@ -171,7 +182,7 @@ class NoteService(
         val targetContent = request.contentRaw ?: note.contentRaw
         val currentItems = if (note.type == NoteType.LIST) {
             noteItemRepository.findAllByNoteIdOrderBySortOrderAscIdAsc(note.id)
-                .map { NoteItemRequest(id = it.id, text = it.text, checked = it.checked, sortOrder = it.sortOrder) }
+                .map { NoteItemRequest(id = it.id, text = it.text, checked = it.checked, sortOrder = it.sortOrder, indent = it.indent) }
         } else {
             emptyList()
         }
@@ -258,17 +269,30 @@ class NoteService(
     private fun replaceItems(note: NoteEntity, items: List<NoteItemRequest>) {
         noteItemRepository.deleteAllByNoteId(note.id)
         if (note.type == NoteType.LIST && items.isNotEmpty()) {
+            val normalized = normalizeIndents(items)
             noteItemRepository.saveAll(
-                items.mapIndexed { index, item ->
+                normalized.mapIndexed { index, item ->
                     NoteItemEntity(
                         id = item.id ?: UUID.randomUUID(),
                         noteId = note.id,
                         text = item.text,
                         checked = item.checked,
                         sortOrder = index,
+                        indent = item.indent ?: 0,
                     )
                 },
             )
+        }
+    }
+
+    private fun normalizeIndents(items: List<NoteItemRequest>): List<NoteItemRequest> {
+        var previousIndent = 0
+        return items.mapIndexed { index, item ->
+            val requested = (item.indent ?: 0).coerceAtLeast(0).coerceAtMost(MAX_ITEM_INDENT)
+            val maxAllowed = if (index == 0) 0 else previousIndent + 1
+            val indent = requested.coerceAtMost(maxAllowed)
+            previousIndent = indent
+            item.copy(indent = indent)
         }
     }
 
@@ -305,6 +329,13 @@ class NoteService(
         if (items.any { it.text.length > 10_000 }) {
             throw ApiException(HttpStatus.BAD_REQUEST, "invalid_note", "List item text exceeds 10000 characters")
         }
+        if (items.any { (it.indent ?: 0) < 0 || (it.indent ?: 0) > MAX_ITEM_INDENT }) {
+            throw ApiException(
+                HttpStatus.BAD_REQUEST,
+                "invalid_note",
+                "List item indent must be between 0 and $MAX_ITEM_INDENT",
+            )
+        }
         val itemIds = items.mapNotNull { it.id }
         if (itemIds.size != itemIds.distinct().size) {
             throw ApiException(HttpStatus.BAD_REQUEST, "invalid_note", "List item IDs must be unique")
@@ -321,7 +352,7 @@ class NoteService(
     private fun toResponse(note: NoteEntity): NoteResponse {
         val items = if (note.type == NoteType.LIST) {
             noteItemRepository.findAllByNoteIdOrderBySortOrderAscIdAsc(note.id).map {
-                NoteItemResponse(it.id, it.text, it.checked, it.sortOrder)
+                NoteItemResponse(it.id, it.text, it.checked, it.sortOrder, it.indent)
             }
         } else {
             emptyList()

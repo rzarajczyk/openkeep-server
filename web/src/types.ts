@@ -17,6 +17,7 @@ export interface ChecklistItem {
   text: string
   checked: boolean
   sortOrder: number
+  indent: number
 }
 
 export interface Attachment {
@@ -55,7 +56,7 @@ export interface NoteWrite {
   archived?: boolean
   pinned?: boolean
   labels?: string[]
-  items?: Array<Pick<ChecklistItem, 'id' | 'text' | 'checked' | 'sortOrder'>>
+  items?: Array<Pick<ChecklistItem, 'id' | 'text' | 'checked' | 'sortOrder' | 'indent'>>
 }
 
 export type KeepImportStatus = 'VALIDATING' | 'RUNNING' | 'COMPLETED' | 'FAILED'

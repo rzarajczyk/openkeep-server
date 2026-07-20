@@ -1,6 +1,6 @@
 # OpenKeep
 
-Self-hosted notes app — text and checklist notes, attachments, search, and multi-user accounts. A small Google Keep-style alternative you run with Docker.
+Self-hosted notes app — text and checklist notes, labels, pinning, attachments, search, Google Keep import, and multi-user accounts. A small Google Keep-style alternative you run with Docker.
 
 **Stack:** React SPA (`web`) · Kotlin/Spring Boot API (`api`) · PostgreSQL (`db`)
 

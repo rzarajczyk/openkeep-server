@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { AppShell } from './AppShell'
+import type { Note } from './types'
 
 vi.mock('./api', () => ({
   api: {
@@ -13,7 +14,64 @@ vi.mock('./api', () => ({
   },
 }))
 
+function note(partial: Partial<Note> & Pick<Note, 'id' | 'title' | 'pinned'>): Note {
+  return {
+    version: 1,
+    archived: false,
+    labels: [],
+    type: 'TEXT',
+    contentRaw: '',
+    contentRendered: '',
+    backgroundColor: '#fff',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    items: [],
+    attachments: [],
+    ...partial,
+  }
+}
+
 afterEach(cleanup)
+
+describe('pinned notes layout', () => {
+  beforeEach(() => {
+    vi.mocked(api.notes).mockReset()
+    vi.mocked(api.notes).mockResolvedValue({
+      items: [
+        note({ id: 'u1', title: 'Grocery list', pinned: false, updatedAt: '2026-01-03T00:00:00Z' }),
+        note({ id: 'p1', title: 'Pinned idea', pinned: true, updatedAt: '2026-01-02T00:00:00Z' }),
+        note({ id: 'u2', title: 'Random thought', pinned: false, updatedAt: '2026-01-01T00:00:00Z' }),
+      ],
+      deletedIds: [],
+      nextUpdatedAfter: null,
+      nextAfterId: null,
+      hasMore: false,
+    })
+  })
+
+  it('shows pinned notes in a Pinned section above Others', async () => {
+    render(<AppShell user={{ id: 1, login: 'rafal' }} onLogout={vi.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: 'Pinned' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Others' })).toBeVisible()
+
+    const pinned = screen.getByRole('heading', { name: 'Pinned' }).closest('section')
+    const others = screen.getByRole('heading', { name: 'Others' }).closest('section')
+    expect(pinned).not.toBeNull()
+    expect(others).not.toBeNull()
+    expect(within(pinned!).getByText('Pinned idea')).toBeVisible()
+    expect(within(others!).getByText('Grocery list')).toBeVisible()
+    expect(within(others!).getByText('Random thought')).toBeVisible()
+    expect(within(pinned!).queryByText('Grocery list')).toBeNull()
+
+    const board = document.querySelector('.notes-board')
+    expect(board).not.toBeNull()
+    const sectionTitles = [...board!.querySelectorAll('.notes-section-title')].map(
+      (heading) => heading.textContent,
+    )
+    expect(sectionTitles).toEqual(['Pinned', 'Others'])
+  })
+})
 
 describe('Google Keep import', () => {
   beforeEach(() => {

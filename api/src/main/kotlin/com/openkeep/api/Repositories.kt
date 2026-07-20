@@ -100,8 +100,9 @@ interface NoteLabelRepository : JpaRepository<NoteLabelEntity, UUID> {
     )
     fun findNamesByNoteId(@Param("noteId") noteId: UUID): List<String>
 
-    @Modifying(flushAutomatically = true)
-    fun deleteAllByNoteId(noteId: UUID): Int
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from NoteLabelEntity nl where nl.noteId = :noteId")
+    fun deleteAllByNoteId(@Param("noteId") noteId: UUID): Int
 }
 
 interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {

@@ -122,4 +122,5 @@ The API service must be named `api` (not `openkeep-api`). Docker DNS resolves se
 - Accounts are defined only via `OPENKEEP_USERS_JSON`. Changing that value and restarting the API creates, updates, or disables users.
 - The web container proxies `/api` to the API service on the Compose network; use one browser origin (for example `http://<your-omv-ip>:7001`).
 - PostgreSQL data is stored under `CHANGE_TO_COMPOSE_DATA_PATH/openkeep/postgres`.
-- Attachments are stored under `CHANGE_TO_COMPOSE_DATA_PATH/openkeep/attachments`.
+- Attachments are stored under `CHANGE_TO_COMPOSE_DATA_PATH/openkeep/attachments`. Google Keep Takeout import stages ZIP contents under that same volume (`.imports`) unless you set a dedicated staging root.
+- Large Takeout ZIPs need the servlet multipart limit raised above the default 25 MiB (also raise `OPENKEEP_IMPORT_MAX_UPLOAD_SIZE` if you change the application-level cap).

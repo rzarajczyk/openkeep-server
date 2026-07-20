@@ -3,14 +3,18 @@ import type { ReactNode } from 'react'
 import type { Note, NoteWrite } from './types'
 
 export const NOTE_COLORS = [
-  { value: '#ffffff', label: 'White' },
-  { value: '#fef3c7', label: 'Sand' },
-  { value: '#fee2e2', label: 'Rose' },
-  { value: '#ffedd5', label: 'Peach' },
-  { value: '#dcfce7', label: 'Mint' },
-  { value: '#dbeafe', label: 'Sky' },
-  { value: '#ede9fe', label: 'Lavender' },
-  { value: '#f3f4f6', label: 'Stone' },
+  { value: '#ffffff', label: 'Default' },
+  { value: '#f28b82', label: 'Red' },
+  { value: '#fbbc04', label: 'Orange' },
+  { value: '#fff475', label: 'Yellow' },
+  { value: '#ccff90', label: 'Green' },
+  { value: '#a7ffeb', label: 'Teal' },
+  { value: '#cbf0f8', label: 'Blue' },
+  { value: '#aecbfa', label: 'Dark blue' },
+  { value: '#d7aefb', label: 'Purple' },
+  { value: '#fdcfe8', label: 'Pink' },
+  { value: '#e6c9a8', label: 'Brown' },
+  { value: '#e8eaed', label: 'Gray' },
 ] as const
 
 export function createId(): string {
@@ -33,7 +37,13 @@ export function noteToWrite(note: Note): NoteWrite {
     archived: note.archived,
     pinned: note.pinned,
     labels: note.labels,
-    items: note.items.map((item, index) => ({ ...item, sortOrder: index })),
+    items: note.items.map((item, index) => ({
+      id: item.id,
+      text: item.text,
+      checked: item.checked,
+      sortOrder: index,
+      indent: item.indent ?? 0,
+    })),
   }
 }
 
@@ -81,6 +91,20 @@ export function sanitizedMarkup(html: string) {
   return {
     __html: document.body.innerHTML,
   }
+}
+
+export const MAX_ITEM_INDENT = 5
+export const INDENT_DRAG_THRESHOLD_PX = 28
+
+export function normalizeIndents<T extends { indent?: number }>(items: T[]): Array<T & { indent: number }> {
+  let previousIndent = 0
+  return items.map((item, index) => {
+    const requested = Math.max(0, Math.min(item.indent ?? 0, MAX_ITEM_INDENT))
+    const maxAllowed = index === 0 ? 0 : previousIndent + 1
+    const indent = Math.min(requested, maxAllowed)
+    previousIndent = indent
+    return { ...item, indent }
+  })
 }
 
 export function errorMessage(error: unknown) {

@@ -61,14 +61,55 @@ class CoreUnitTests {
         val note = TakeoutNoteParser().parse(node)
 
         assertThat(note.type).isEqualTo(NoteType.LIST)
-        assertThat(note.items).containsExactly(TakeoutItem("Milk", true), TakeoutItem("Bread", false))
-        assertThat(note.color).isEqualTo("#dbeafe")
+        assertThat(note.items).containsExactly(
+            TakeoutItem("Milk", true),
+            TakeoutItem("Bread", false),
+        )
+        assertThat(note.color).isEqualTo("#cbf0f8")
         assertThat(note.archived).isTrue()
         assertThat(note.pinned).isTrue()
         assertThat(note.labels).containsExactly("Home", "Errands")
         assertThat(note.attachments).containsExactly(TakeoutAttachment("Takeout/Keep/photo.jpg"))
         assertThat(note.createdAt).isEqualTo(Instant.parse("2023-11-14T22:13:20Z"))
         assertThat(note.updatedAt).isEqualTo(Instant.parse("2023-11-14T22:15:00Z"))
+    }
+
+    @Test
+    fun `Keep parser preserves nested checklist indentation from childListItems`() {
+        val node = ObjectMapper().readTree(
+            """
+            {
+              "title": "Nested",
+              "listContent": [
+                {
+                  "text": "Parent",
+                  "isChecked": false,
+                  "childListItems": [
+                    {"text": "Child A", "isChecked": true},
+                    {
+                      "text": "Child B",
+                      "isChecked": false,
+                      "childListItems": [
+                        {"text": "Grandchild", "isChecked": false}
+                      ]
+                    }
+                  ]
+                },
+                {"text": "Sibling", "isChecked": false}
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val note = TakeoutNoteParser().parse(node)
+
+        assertThat(note.items).containsExactly(
+            TakeoutItem("Parent", false, 0),
+            TakeoutItem("Child A", true, 1),
+            TakeoutItem("Child B", false, 1),
+            TakeoutItem("Grandchild", false, 2),
+            TakeoutItem("Sibling", false, 0),
+        )
     }
 
     @Test
@@ -81,8 +122,34 @@ class CoreUnitTests {
 
         assertThat(text.type).isEqualTo(NoteType.TEXT)
         assertThat(text.content).isEqualTo("See https://example.com/x")
+        assertThat(text.color).isEqualTo("#ffffff")
         assertThat(emptyList.type).isEqualTo(NoteType.LIST)
         assertThat(emptyList.items).isEmpty()
+    }
+
+    @Test
+    fun `Keep parser maps each palette color to its Keep hex`() {
+        val mapper = ObjectMapper()
+        val expected = mapOf(
+            "DEFAULT" to "#ffffff",
+            "RED" to "#f28b82",
+            "ORANGE" to "#fbbc04",
+            "YELLOW" to "#fff475",
+            "GREEN" to "#ccff90",
+            "TEAL" to "#a7ffeb",
+            "BLUE" to "#cbf0f8",
+            "CERULEAN" to "#aecbfa",
+            "PURPLE" to "#d7aefb",
+            "PINK" to "#fdcfe8",
+            "BROWN" to "#e6c9a8",
+            "GRAY" to "#e8eaed",
+        )
+
+        expected.forEach { (name, hex) ->
+            val note = TakeoutNoteParser().parse(mapper.readTree("""{"title":"$name","textContent":"x","color":"$name"}"""))
+            assertThat(note.color).isEqualTo(hex)
+        }
+        assertThat(expected.values.distinct()).hasSize(expected.size)
     }
 
     @Test
