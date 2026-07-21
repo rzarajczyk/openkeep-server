@@ -52,6 +52,13 @@ test.beforeEach(async ({ page }) => {
       json: { ...createdNote, ...payload, version: 2 },
     })
   })
+  await page.route('**/api/markdown/preview', async (route) => {
+    const body = route.request().postDataJSON() as { markdown?: string }
+    await route.fulfill({
+      status: 200,
+      json: { html: body.markdown ? `<p>${body.markdown}</p>` : '' },
+    })
+  })
 })
 
 test('signs in and creates a text note', async ({ page }) => {
@@ -64,6 +71,7 @@ test('signs in and creates a text note', async ({ page }) => {
   await page.getByLabel('Create note').getByRole('button', { name: 'Add note' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.getByLabel('Note title').fill('Smoke test note')
+  await page.getByRole('button', { name: 'Markdown' }).click()
   await page.getByLabel('Note content').fill('Created by Playwright')
   await expect(page.getByText(/Unsaved changes|Saving|Saved/)).toBeVisible()
 })
