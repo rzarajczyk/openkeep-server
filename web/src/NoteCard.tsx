@@ -1,8 +1,9 @@
 import { Archive, ArchiveRestore, MoreHorizontal, Pin, Trash2 } from 'lucide-react'
 import { useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { AttachmentView } from './AttachmentView'
+import { RenderedMarkdown } from './RenderedMarkdown'
 import type { Note } from './types'
-import { linkify, sanitizedMarkup } from './utils'
+import { linkify } from './utils'
 
 interface NoteCardProps {
   note: Note
@@ -56,9 +57,10 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
         {note.title ? <h2>{note.title}</h2> : null}
         {note.type === 'TEXT' ? (
           note.contentRendered ? (
-            <div
+            <RenderedMarkdown
               className="rendered-content"
-              dangerouslySetInnerHTML={sanitizedMarkup(note.contentRendered)}
+              html={note.contentRendered}
+              attachments={note.attachments}
             />
           ) : (
             note.contentRaw && <p className="plain-content">{linkify(note.contentRaw)}</p>
@@ -72,7 +74,15 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
                 key={item.id}
               >
                 <span aria-hidden="true">{item.checked ? '✓' : ''}</span>
-                <span>{linkify(item.text)}</span>
+                {item.textRendered ? (
+                  <RenderedMarkdown
+                    className="checklist-markdown"
+                    html={item.textRendered}
+                    inline
+                  />
+                ) : (
+                  <span>{linkify(item.text)}</span>
+                )}
               </li>
             ))}
             {note.items.length > 8 && <li className="more-items">+{note.items.length - 8} more</li>}

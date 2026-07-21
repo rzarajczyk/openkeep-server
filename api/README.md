@@ -18,6 +18,15 @@ The default database is `jdbc:postgresql://localhost:5432/openkeep` with usernam
 
 The API listens on port 8080. OpenAPI is available at `/openapi.json` and health at `/health`.
 
+Markdown for notes is rendered by `MarkdownService` in `Notes.kt`:
+
+- Full body render (TEXT notes / default preview): CommonMark + autolink + GFM
+  strikethrough, images (http(s) or attachment filename → `/attachments/{id}`),
+  with OWASP sanitization (including `pre` and `hr`).
+- Inline render (LIST item `textRendered` and `POST /markdown/preview` with
+  `inline: true`): bold, italic, inline code, links, bare URLs, strikethrough —
+  no headings, lists, or images.
+
 ## Configuration
 
 - `OPENKEEP_USERS_JSON` — required JSON array of `{login,password}` objects

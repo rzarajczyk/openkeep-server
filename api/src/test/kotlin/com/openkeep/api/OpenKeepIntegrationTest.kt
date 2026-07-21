@@ -226,7 +226,7 @@ class OpenKeepIntegrationTest {
                       "type": "LIST",
                       "title": "Budget 100%",
                       "items": [
-                        {"text": "First", "checked": false},
+                        {"text": "**First**", "checked": false},
                         {"text": "Second", "checked": true}
                       ]
                     }
@@ -234,7 +234,8 @@ class OpenKeepIntegrationTest {
                 ),
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.items[0].text").value("First"))
+            .andExpect(jsonPath("$.items[0].text").value("**First**"))
+            .andExpect(jsonPath("$.items[0].textRendered").value(org.hamcrest.Matchers.containsString("<strong>First</strong>")))
             .andExpect(jsonPath("$.items[0].sortOrder").value(0))
             .andExpect(jsonPath("$.items[1].text").value("Second"))
             .andExpect(jsonPath("$.items[1].sortOrder").value(1))
@@ -265,7 +266,7 @@ class OpenKeepIntegrationTest {
                       "archived": true,
                       "version": $version,
                       "items": [
-                        {"id": "$firstItemId", "text": "First", "checked": false, "sortOrder": 0},
+                        {"id": "$firstItemId", "text": "**First**", "checked": false, "sortOrder": 0},
                         {"id": "$secondItemId", "text": "Second", "checked": true, "sortOrder": 1}
                       ]
                     }

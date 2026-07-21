@@ -49,3 +49,16 @@ export function sameColumnIds(a: { id: string }[][], b: { id: string }[][]): boo
   }
   return true
 }
+
+/** True when packing layout and note object identities are unchanged. */
+export function samePackedNotes<T extends { id: string }>(a: T[][], b: T[][]): boolean {
+  if (!sameColumnIds(a, b)) return false
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]!
+    const right = b[i]!
+    for (let j = 0; j < left.length; j++) {
+      if (left[j] !== right[j]) return false
+    }
+  }
+  return true
+}

@@ -3,7 +3,12 @@ package com.openkeep.api
 import jakarta.validation.Valid
 import jakarta.validation.constraints.Size
 import org.commonmark.ext.autolink.AutolinkExtension
+import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
+import org.commonmark.node.Image
 import org.commonmark.parser.Parser
+import org.commonmark.renderer.html.AttributeProvider
+import org.commonmark.renderer.html.AttributeProviderContext
+import org.commonmark.renderer.html.AttributeProviderFactory
 import org.commonmark.renderer.html.HtmlRenderer
 import org.owasp.html.HtmlPolicyBuilder
 import org.owasp.html.PolicyFactory
@@ -26,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.time.Instant
+import java.util.Locale
 import java.util.UUID
 
 data class NoteItemRequest(
@@ -73,9 +79,16 @@ data class UpdateNoteRequest(
 data class NoteItemResponse(
     val id: UUID,
     val text: String,
+    val textRendered: String,
     val checked: Boolean,
     val sortOrder: Int,
     val indent: Int,
+)
+
+data class MarkdownAttachmentRef(
+    val id: UUID,
+    val originalFilename: String,
+    val kind: AttachmentKind,
 )
 data class AttachmentResponse(
     val id: UUID,
@@ -114,19 +127,101 @@ data class NotesSyncResponse(
 
 @Component
 class MarkdownService {
-    private val extensions = listOf(AutolinkExtension.create())
+    private val extensions = listOf(
+        AutolinkExtension.create(),
+        StrikethroughExtension.create(),
+    )
     private val parser = Parser.builder().extensions(extensions).build()
-    private val renderer = HtmlRenderer.builder().extensions(extensions).escapeHtml(true).build()
-    private val policy: PolicyFactory = Sanitizers.FORMATTING
+    private val blockPolicy: PolicyFactory = Sanitizers.FORMATTING
         .and(Sanitizers.BLOCKS)
         .and(Sanitizers.LINKS)
+        .and(Sanitizers.IMAGES)
         .and(
             HtmlPolicyBuilder()
+                .allowElements("pre", "hr")
                 .allowAttributes("class").matching(true, "language-[a-zA-Z0-9_-]+").onElements("code")
                 .toFactory(),
         )
+    private val inlinePolicy: PolicyFactory = Sanitizers.FORMATTING
+        .and(Sanitizers.LINKS)
 
-    fun render(markdown: String): String = policy.sanitize(renderer.render(parser.parse(markdown)))
+    fun render(
+        markdown: String,
+        attachments: List<MarkdownAttachmentRef> = emptyList(),
+    ): String {
+        val html = renderHtml(markdown, attachments)
+        return blockPolicy.sanitize(html)
+    }
+
+    fun renderInline(markdown: String): String {
+        val html = renderHtml(markdown, emptyList())
+        return unwrapSingleParagraph(inlinePolicy.sanitize(html))
+    }
+
+    private fun renderHtml(
+        markdown: String,
+        attachments: List<MarkdownAttachmentRef>,
+    ): String {
+        val renderer = HtmlRenderer.builder()
+            .extensions(extensions)
+            .escapeHtml(false)
+            .attributeProviderFactory(attachmentImageProvider(attachments))
+            .build()
+        return renderer.render(parser.parse(markdown))
+    }
+
+    private fun attachmentImageProvider(
+        attachments: List<MarkdownAttachmentRef>,
+    ): AttributeProviderFactory {
+        val byName = LinkedHashMap<String, MarkdownAttachmentRef>()
+        attachments
+            .sortedWith(
+                compareBy<MarkdownAttachmentRef> { if (it.kind == AttachmentKind.IMAGE) 0 else 1 }
+                    .thenBy { it.originalFilename.lowercase(Locale.ROOT) },
+            )
+            .forEach { attachment ->
+                byName.putIfAbsent(attachment.originalFilename.lowercase(Locale.ROOT), attachment)
+            }
+        return AttributeProviderFactory { _: AttributeProviderContext ->
+            AttributeProvider { node, tagName, attributes ->
+                if (node is Image && tagName == "img") {
+                    attributes["src"] = resolveImageDestination(node.destination, byName)
+                }
+            }
+        }
+    }
+
+    private fun resolveImageDestination(
+        destination: String,
+        byName: Map<String, MarkdownAttachmentRef>,
+    ): String {
+        val trimmed = destination.trim()
+        if (trimmed.isEmpty()) return trimmed
+        val lower = trimmed.lowercase(Locale.ROOT)
+        if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("/attachments/")) {
+            return trimmed
+        }
+        val filename = trimmed
+            .replace('\\', '/')
+            .substringAfterLast('/')
+            .trim()
+        if (filename.isEmpty()) return trimmed
+        val match = byName[filename.lowercase(Locale.ROOT)] ?: return trimmed
+        return "/attachments/${match.id}"
+    }
+
+    private fun unwrapSingleParagraph(html: String): String {
+        val trimmed = html.trim()
+        val match = SINGLE_PARAGRAPH.matchEntire(trimmed) ?: return trimmed
+        return match.groupValues[1]
+    }
+
+    companion object {
+        private val SINGLE_PARAGRAPH = Regex(
+            """^<p>(.*)</p>$""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
+    }
 }
 
 @Service
@@ -155,7 +250,11 @@ class NoteService(
                 type = request.type,
                 title = request.title.trim(),
                 contentRaw = if (request.type == NoteType.TEXT) request.contentRaw else "",
-                contentRendered = if (request.type == NoteType.TEXT) markdownService.render(request.contentRaw) else "",
+                contentRendered = if (request.type == NoteType.TEXT) {
+                    markdownService.render(request.contentRaw)
+                } else {
+                    ""
+                },
                 backgroundColor = validateColor(request.backgroundColor),
                 archived = request.archived,
                 pinned = request.pinned,
@@ -192,7 +291,13 @@ class NoteService(
         note.type = targetType
         request.title?.let { note.title = it.trim() }
         note.contentRaw = if (targetType == NoteType.TEXT) targetContent else ""
-        note.contentRendered = if (targetType == NoteType.TEXT) markdownService.render(targetContent) else ""
+        note.contentRendered = if (targetType == NoteType.TEXT) {
+            val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(note.id)
+                .map(::toMarkdownAttachmentRef)
+            markdownService.render(targetContent, attachments)
+        } else {
+            ""
+        }
         request.backgroundColor?.let { note.backgroundColor = validateColor(it) }
         request.archived?.let { note.archived = it }
         request.pinned?.let { note.pinned = it }
@@ -352,7 +457,14 @@ class NoteService(
     private fun toResponse(note: NoteEntity): NoteResponse {
         val items = if (note.type == NoteType.LIST) {
             noteItemRepository.findAllByNoteIdOrderBySortOrderAscIdAsc(note.id).map {
-                NoteItemResponse(it.id, it.text, it.checked, it.sortOrder, it.indent)
+                NoteItemResponse(
+                    id = it.id,
+                    text = it.text,
+                    textRendered = markdownService.renderInline(it.text),
+                    checked = it.checked,
+                    sortOrder = it.sortOrder,
+                    indent = it.indent,
+                )
             }
         } else {
             emptyList()
@@ -386,6 +498,12 @@ class NoteService(
         )
     }
 }
+
+private fun toMarkdownAttachmentRef(entity: AttachmentEntity) = MarkdownAttachmentRef(
+    id = entity.id,
+    originalFilename = entity.originalFilename,
+    kind = entity.kind,
+)
 
 @RestController
 @RequestMapping("/notes")
@@ -436,6 +554,34 @@ class SearchController(private val noteService: NoteService) {
         @RequestParam q: String,
         @RequestParam(defaultValue = "100") limit: Int,
     ) = noteService.search(principal(authentication).userId, q, limit)
+}
+
+data class MarkdownPreviewRequest(
+    @field:Size(max = 1_000_000)
+    val markdown: String = "",
+    @field:Size(max = 100)
+    val attachments: List<MarkdownAttachmentRef> = emptyList(),
+    /** When true, render the list-item inline subset (no block elements). */
+    val inline: Boolean = false,
+)
+
+data class MarkdownPreviewResponse(
+    val html: String,
+)
+
+@RestController
+@RequestMapping("/markdown")
+class MarkdownController(private val markdownService: MarkdownService) {
+    @PostMapping("/preview")
+    fun preview(
+        @Valid @RequestBody request: MarkdownPreviewRequest,
+    ) = MarkdownPreviewResponse(
+        html = if (request.inline) {
+            markdownService.renderInline(request.markdown)
+        } else {
+            markdownService.render(request.markdown, request.attachments)
+        },
+    )
 }
 
 private fun principal(authentication: UsernamePasswordAuthenticationToken) =

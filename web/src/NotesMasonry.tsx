@@ -10,7 +10,7 @@ import type { Note } from './types'
 import {
   columnCountForWidth,
   packIntoColumns,
-  sameColumnIds,
+  samePackedNotes,
 } from './packNotes'
 
 interface NotesMasonryProps {
@@ -38,7 +38,7 @@ export function NotesMasonry({ notes, renderNote }: NotesMasonryProps) {
       columnCountRef.current,
       heightsRef.current,
     )
-    setPacked((previous) => (sameColumnIds(previous, next) ? previous : next))
+    setPacked((previous) => (samePackedNotes(previous, next) ? previous : next))
   }, [])
 
   useEffect(() => {

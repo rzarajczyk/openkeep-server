@@ -15,6 +15,8 @@ export interface AuthSession {
 export interface ChecklistItem {
   id: string
   text: string
+  /** Server-rendered inline HTML for card preview; empty while editing locally. */
+  textRendered: string
   checked: boolean
   sortOrder: number
   indent: number

@@ -104,6 +104,7 @@ class AttachmentService(
     private val noteRepository: NoteRepository,
     private val attachmentRepository: AttachmentRepository,
     private val storage: AttachmentStorage,
+    private val markdownService: MarkdownService,
     private val properties: OpenKeepProperties,
 ) {
     private val tika = Tika()
@@ -151,6 +152,7 @@ class AttachmentService(
                 ),
             )
             note.updatedAt = Instant.now()
+            refreshTextContentRendered(note)
             noteRepository.save(note)
             return metadata.toResponse()
         } catch (ex: Exception) {
@@ -218,8 +220,16 @@ class AttachmentService(
             ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
         attachmentRepository.delete(metadata)
         note.updatedAt = Instant.now()
+        refreshTextContentRendered(note)
         noteRepository.save(note)
         storage.deleteAfterCommit(listOf(metadata.storagePath))
+    }
+
+    private fun refreshTextContentRendered(note: NoteEntity) {
+        if (note.type != NoteType.TEXT) return
+        val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(note.id)
+            .map { MarkdownAttachmentRef(it.id, it.originalFilename, it.kind) }
+        note.contentRendered = markdownService.render(note.contentRaw, attachments)
     }
 
     private fun copyWithLimit(file: MultipartFile, temp: Path, maxSize: Long): Long {

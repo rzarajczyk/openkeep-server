@@ -11,6 +11,17 @@ npm run dev
 
 Vite proxies `/api` to `http://localhost:8080` and strips the `/api` prefix.
 
+## Editor notes
+
+- TEXT and LIST notes default to a read-only **Markdown preview**; the **M** toolbar
+  control switches to plain editing.
+- In plain mode, **Formatting** (**A**) inserts markdown markers. TEXT gets the full
+  menu; LIST is limited to bold / italic / strikethrough / inline code.
+- Preview HTML comes from `POST /api/markdown/preview` (`inline: true` for list items).
+- Toolbar tooltips use the shared `Tooltip` component (portaled into the note dialog).
+
+Product behavior is specified in [`../openkeep-spec.md`](../openkeep-spec.md).
+
 ## Checks
 
 ```sh

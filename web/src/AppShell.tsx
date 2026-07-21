@@ -24,6 +24,7 @@ import {
   notesReducer,
   selectNotes,
 } from './notesReducer'
+import { Tooltip } from './Tooltip'
 import type { Note, User } from './types'
 import { errorMessage } from './utils'
 
@@ -359,16 +360,17 @@ export function AppShell({ user, onLogout }: AppShellProps) {
             </button>
           )}
         </div>
-        <button
-          type="button"
-          className="icon-button sync-button"
-          onClick={() => void loadNotes(archived, true)}
-          disabled={syncing}
-          aria-label="Sync notes"
-          title="Sync notes"
-        >
-          <RefreshCw className={syncing ? 'spin' : ''} />
-        </button>
+        <Tooltip label="Sync notes">
+          <button
+            type="button"
+            className="icon-button sync-button"
+            onClick={() => void loadNotes(archived, true)}
+            disabled={syncing}
+            aria-label="Sync notes"
+          >
+            <RefreshCw className={syncing ? 'spin' : ''} />
+          </button>
+        </Tooltip>
         <div className="user-menu" ref={accountRef}>
           <button
             type="button"

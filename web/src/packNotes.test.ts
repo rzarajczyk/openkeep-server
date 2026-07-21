@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { columnCountForWidth, packIntoColumns } from './packNotes'
+import { columnCountForWidth, packIntoColumns, samePackedNotes } from './packNotes'
 
 function ids(columns: { id: string }[][]) {
   return columns.map((column) => column.map((note) => note.id))
@@ -51,5 +51,20 @@ describe('packIntoColumns', () => {
       ['p3'],
       ['p4'],
     ])
+  })
+})
+
+describe('samePackedNotes', () => {
+  it('returns true when layout and note references match', () => {
+    const a = { id: 'a' }
+    const b = { id: 'b' }
+    const packed = [[a], [b]]
+    expect(samePackedNotes(packed, [[a], [b]])).toBe(true)
+  })
+
+  it('returns false when a note object was replaced with the same id', () => {
+    const previous = [[{ id: 'a', title: 'old' }], []]
+    const next = [[{ id: 'a', title: 'new' }], []]
+    expect(samePackedNotes(previous, next)).toBe(false)
   })
 })

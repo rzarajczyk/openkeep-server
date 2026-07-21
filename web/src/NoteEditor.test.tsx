@@ -11,6 +11,7 @@ vi.mock('./api', () => ({
     deleteAttachment: vi.fn(),
     uploadAttachment: vi.fn(),
     note: vi.fn(),
+    previewMarkdown: vi.fn(),
   },
 }))
 
@@ -37,6 +38,8 @@ describe('NoteEditor', () => {
   beforeEach(() => {
     vi.mocked(api.updateNote).mockReset()
     vi.mocked(api.note).mockReset()
+    vi.mocked(api.previewMarkdown).mockReset()
+    vi.mocked(api.previewMarkdown).mockResolvedValue({ html: '<p>preview</p>' })
     Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
       configurable: true,
       value: function showModal(this: HTMLDialogElement) {
@@ -189,6 +192,7 @@ describe('NoteEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Add checkboxes' }))
 
     expect(screen.getByRole('button', { name: 'Remove checkboxes' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Markdown' }))
     expect(screen.getByLabelText('Checklist item 1')).toHaveValue('Buy milk')
     expect(screen.getByLabelText('Checklist item 2')).toHaveValue('Call Mum')
   })
@@ -202,8 +206,8 @@ describe('NoteEditor', () => {
           ...note,
           type: 'LIST',
           items: [
-            { id: 'first', text: 'Buy milk', checked: false, sortOrder: 0, indent: 0 },
-            { id: 'second', text: 'Call Mum', checked: true, sortOrder: 1, indent: 0 },
+            { id: 'first', text: 'Buy milk', textRendered: '', checked: false, sortOrder: 0, indent: 0 },
+            { id: 'second', text: 'Call Mum', textRendered: '', checked: true, sortOrder: 1, indent: 0 },
           ],
         }}
         onClose={vi.fn()}
@@ -217,6 +221,7 @@ describe('NoteEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Remove checkboxes' }))
 
     expect(screen.getByRole('button', { name: 'Add checkboxes' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Markdown' }))
     expect(screen.getByLabelText('Note content')).toHaveValue('Buy milk\nCall Mum')
   })
 
@@ -230,8 +235,8 @@ describe('NoteEditor', () => {
           ...note,
           type: 'LIST',
           items: [
-            { id: 'first', text: 'Buy milk', checked: false, sortOrder: 0, indent: 0 },
-            { id: 'second', text: 'Call Mum', checked: true, sortOrder: 1, indent: 0 },
+            { id: 'first', text: 'Buy milk', textRendered: '', checked: false, sortOrder: 0, indent: 0 },
+            { id: 'second', text: 'Call Mum', textRendered: '', checked: true, sortOrder: 1, indent: 0 },
           ],
         }}
         onClose={vi.fn()}
@@ -344,5 +349,95 @@ describe('NoteEditor', () => {
       'aria-checked',
       'true',
     )
+  })
+
+  it('toggles Markdown preview and shows Formatting in plain mode', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <NoteEditor
+        note={note}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    const markdownToggle = screen.getByRole('button', { name: 'Markdown' })
+    expect(markdownToggle).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByLabelText('Markdown preview')).toBeVisible()
+    expect(screen.queryByLabelText('Note content')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Formatting' })).toBeNull()
+
+    await user.click(markdownToggle)
+    expect(markdownToggle).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('Note content')).toBeVisible()
+    expect(screen.queryByLabelText('Markdown preview')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Formatting' }))
+    expect(screen.getByRole('menu', { name: 'Formatting' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Heading 1' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Bold' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Horizontal line' })).toBeVisible()
+  })
+
+  it('shows limited Formatting for list notes and previews inline markdown', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.previewMarkdown).mockImplementation(async (markdown, _attachments, _signal, options) => {
+      if (options?.inline) {
+        return { html: `<strong>${markdown.replace(/\*\*/g, '')}</strong>` }
+      }
+      return { html: '<p>preview</p>' }
+    })
+
+    render(
+      <NoteEditor
+        note={{
+          ...note,
+          type: 'LIST',
+          items: [
+            {
+              id: 'first',
+              text: '**Buy milk**',
+              textRendered: '',
+              checked: false,
+              sortOrder: 0,
+              indent: 0,
+            },
+          ],
+        }}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    const markdownToggle = screen.getByRole('button', { name: 'Markdown' })
+    expect(markdownToggle).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByLabelText('Markdown preview')).toBeVisible()
+    await waitFor(() =>
+      expect(api.previewMarkdown).toHaveBeenCalledWith(
+        '**Buy milk**',
+        [],
+        expect.any(AbortSignal),
+        { inline: true },
+      ),
+    )
+    expect(screen.queryByRole('button', { name: 'Formatting' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add item' })).toBeNull()
+
+    await user.click(markdownToggle)
+    expect(screen.getByLabelText('Checklist item 1')).toHaveValue('**Buy milk**')
+    expect(screen.getByRole('button', { name: 'Add item' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Formatting' }))
+    expect(screen.getByRole('menuitem', { name: 'Bold' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Inline code' })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Heading 1' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: 'Horizontal line' })).toBeNull()
   })
 })

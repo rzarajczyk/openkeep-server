@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 import type { Attachment } from './types'
 import { errorMessage, formatBytes } from './utils'
+import { Tooltip } from './Tooltip'
 
 interface AttachmentViewProps {
   attachment: Attachment
@@ -88,35 +89,39 @@ export function AttachmentView({
           <img src={objectUrl} alt={attachment.originalFilename} loading="lazy" />
         )}
         <div className="attachment-image-actions">
-          <button
-            type="button"
-            className="icon-button"
-            onClick={(event) => {
-              event.stopPropagation()
-              void download()
-            }}
-            disabled={downloading || loading}
-            aria-label={`Download ${attachment.originalFilename}`}
-            title={`Download ${attachment.originalFilename}`}
-          >
-            {downloading ? <LoaderCircle className="spin" /> : <Download />}
-          </button>
-          {!compact && onDelete && (
+          <Tooltip label={`Download ${attachment.originalFilename}`}>
             <button
               type="button"
-              className="icon-button danger"
-              onClick={remove}
-              disabled={deleting}
-              aria-label={`Delete ${attachment.originalFilename}`}
-              title={`Delete ${attachment.originalFilename}`}
+              className="icon-button"
+              onClick={(event) => {
+                event.stopPropagation()
+                void download()
+              }}
+              disabled={downloading || loading}
+              aria-label={`Download ${attachment.originalFilename}`}
             >
-              {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
+              {downloading ? <LoaderCircle className="spin" /> : <Download />}
             </button>
+          </Tooltip>
+          {!compact && onDelete && (
+            <Tooltip label={`Delete ${attachment.originalFilename}`}>
+              <button
+                type="button"
+                className="icon-button danger"
+                onClick={remove}
+                disabled={deleting}
+                aria-label={`Delete ${attachment.originalFilename}`}
+              >
+                {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
+              </button>
+            </Tooltip>
           )}
         </div>
         {!compact && (
           <figcaption>
-            <span title={attachment.originalFilename}>{attachment.originalFilename}</span>
+            <Tooltip label={attachment.originalFilename}>
+              <span>{attachment.originalFilename}</span>
+            </Tooltip>
           </figcaption>
         )}
         {error && <span className="field-error">{error}</span>}
@@ -131,27 +136,29 @@ export function AttachmentView({
         <span>{attachment.originalFilename}</span>
         <small>{formatBytes(attachment.sizeBytes)}</small>
       </button>
-      <button
-        type="button"
-        className="icon-button"
-        onClick={download}
-        disabled={loading || downloading}
-        aria-label={`Download ${attachment.originalFilename}`}
-        title={`Download ${attachment.originalFilename}`}
-      >
-        {loading || downloading ? <LoaderCircle className="spin" /> : <Download />}
-      </button>
-      {!compact && onDelete && (
+      <Tooltip label={`Download ${attachment.originalFilename}`}>
         <button
           type="button"
-          className="icon-button danger"
-          onClick={remove}
-          disabled={deleting}
-          aria-label={`Delete ${attachment.originalFilename}`}
-          title={`Delete ${attachment.originalFilename}`}
+          className="icon-button"
+          onClick={download}
+          disabled={loading || downloading}
+          aria-label={`Download ${attachment.originalFilename}`}
         >
-          {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
+          {loading || downloading ? <LoaderCircle className="spin" /> : <Download />}
         </button>
+      </Tooltip>
+      {!compact && onDelete && (
+        <Tooltip label={`Delete ${attachment.originalFilename}`}>
+          <button
+            type="button"
+            className="icon-button danger"
+            onClick={remove}
+            disabled={deleting}
+            aria-label={`Delete ${attachment.originalFilename}`}
+          >
+            {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
+          </button>
+        </Tooltip>
       )}
       {error && <span className="field-error">{error}</span>}
     </div>

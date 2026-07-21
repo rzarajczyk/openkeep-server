@@ -34,6 +34,66 @@ class CoreUnitTests {
     }
 
     @Test
+    fun `strikethrough is rendered`() {
+        val rendered = markdown.render("Say ~~goodbye~~")
+
+        assertThat(rendered).contains("<del>goodbye</del>")
+    }
+
+    @Test
+    fun `inline markdown keeps emphasis links and code without blocks`() {
+        val rendered = markdown.renderInline(
+            "**bold** _italic_ `code` [docs](https://example.com) ~~old~~\n\n# Heading\n\n![x](https://example.com/x.png)",
+        )
+
+        assertThat(rendered)
+            .contains("<strong>bold</strong>")
+            .contains("<em>italic</em>")
+            .contains("<code>code</code>")
+            .contains("""href="https://example.com""")
+            .contains("<del>old</del>")
+            .doesNotContain("<h1")
+            .doesNotContain("<img")
+            .doesNotContain("<p>")
+    }
+
+    @Test
+    fun `attachment filenames resolve to attachment urls and external images remain`() {
+        val attachmentId = java.util.UUID.fromString("11111111-1111-1111-1111-111111111111")
+        val rendered = markdown.render(
+            "Local ![shot](Photo.JPG)\n\nRemote ![cdn](https://cdn.example.com/a.png)",
+            listOf(
+                MarkdownAttachmentRef(
+                    id = attachmentId,
+                    originalFilename = "photo.jpg",
+                    kind = AttachmentKind.IMAGE,
+                ),
+            ),
+        )
+
+        assertThat(rendered)
+            .contains("""src="/attachments/$attachmentId""")
+            .contains("""src="https://cdn.example.com/a.png""")
+            .doesNotContain("Photo.JPG")
+    }
+
+    @Test
+    fun `fenced code keeps a pre wrapper`() {
+        val rendered = markdown.render("```\nval x = 1\n```")
+
+        assertThat(rendered).contains("<pre>")
+        assertThat(rendered).contains("<code>")
+    }
+
+    @Test
+    fun `underline and horizontal rules are preserved`() {
+        val rendered = markdown.render("Hello <u>there</u>\n\n---\n")
+
+        assertThat(rendered).contains("<u>there</u>")
+        assertThat(rendered).contains("<hr")
+    }
+
+    @Test
     fun `token hashing uses stable sha256`() {
         assertThat(AuthService.hashToken("opaque-token")).isEqualTo(
             "84d3f23da9b5f51b3269566eff05d3fb23607eeef89567f9cd280b90ca0dbc5c",

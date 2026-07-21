@@ -46,6 +46,7 @@ Authentication is sessionless: login returns a bearer token, and every request i
 ### Note Items (for list notes)
 - `id`, `note_id`, `text`, `checked`, `sort_order`, `indent`
 - `indent` is an integer nesting level (**0–5**). Server and client normalize so the first item is always `0`, and each following item is at most one deeper than the previous item.
+- API responses include `textRendered`: sanitized inline HTML derived from `text` (bold, italic, inline code, links, bare URLs, strikethrough). Not stored in the database.
 
 ### Labels
 - `labels`: `id`, `user_id`, `name` (1–500 printable characters, unique per user), `created_at`
@@ -99,8 +100,9 @@ Core endpoints:
 - `DELETE /attachments/:id`
 - `POST /imports/google-keep` (multipart Takeout ZIP upload; returns a job)
 - `GET /imports/google-keep/:jobId` (job status / result)
+- `POST /markdown/preview` — renders markdown to sanitized HTML for the editor. Body: `{ markdown, attachments?, inline? }`. When `inline` is `false`/omitted (text notes), uses the full CommonMark pipeline (autolink, GFM strikethrough, images, headings, lists, code blocks, underline via `<u>`, horizontal rules). When `inline` is `true` (list items), uses the inline-only subset and returns unwrapped inline HTML (no block elements).
 
-Note create/update payloads include `pinned`, `labels`, checklist `items` (with `indent`), and the usual title/body/color/archive fields. Search stays intentionally simple: PostgreSQL `ILIKE` over note title, body, and list item text, limited to the authenticated user. On create/update, the server stores canonical note state and returns the full saved note, so clients can immediately replace local state after autosave.
+Note create/update payloads include `pinned`, `labels`, checklist `items` (with `indent`), and the usual title/body/color/archive fields. Search stays intentionally simple: PostgreSQL `ILIKE` over note title, body, and list item text, limited to the authenticated user. On create/update, the server stores canonical note state and returns the full saved note (including `contentRendered` / item `textRendered`), so clients can immediately replace local state after autosave.
 
 ## Web Client
 
@@ -116,21 +118,29 @@ Note create/update payloads include `pinned`, `labels`, checklist `items` (with 
 
 Each card shows the title when present (empty titles are omitted — no “Untitled note” placeholder), rendered body or checklist preview (respecting indent), background color, detected links, labels, pin indicator when pinned, and attachment previews. Clicking anywhere on the card opens the editor. Archive and overflow menu controls, in-note links, and attachment download buttons keep their own click behavior and do not open the note.
 
-- **Text notes:** markdown body rendered as a preview on the card.
-- **List notes:** read-only checklist preview (up to eight items), with visual indent.
+- **Text notes:** CommonMark markdown body (plus autolink, GFM strikethrough, underline via `<u>`, horizontal rules, and images) rendered from `contentRendered` on the card. Images may use `http(s)` URLs or an attachment filename on the same note (resolved to `/attachments/{id}`). Attachment images are loaded via authenticated blob URLs in the client. Editor preview/formatting behavior is described under *Creating and editing notes*.
+- **List notes:** checklist preview (up to eight items), with visual indent and strikethrough when checked. Item text uses server `textRendered` for the **inline-only** markdown subset: bold, italic, inline code, markdown links, bare URLs, and strikethrough (no headings, lists, images, or block elements in item text). Editor preview/formatting behavior is described under *Creating and editing notes*.
 - **Image attachments:** inline preview on the card; a download icon saves the full-size original file.
 - **File attachments:** filename, size, and download action.
-- **Background colors:** Google Keep palette — Default (`#ffffff`), Red (`#f28b82`), Orange (`#fbbc04`), Yellow (`#fff475`), Green (`#ccff90`), Teal (`#a7ffeb`), Blue (`#cbf0f8`), Dark blue (`#aecbfa`), Purple (`#d7aefb`), Pink (`#fdcfe8`), Brown (`#e6c9a8`), Gray (`#e8eaed`). The editor color picker uses the same swatches (default shows a no-fill affordance).
+- **Background colors:** Google Keep palette — Default (`#ffffff`), Red (`#f28b82`), Orange (`#fbbc04`), Yellow (`#fff475`), Green (`#ccff90`), Teal (`#a7ffeb`), Blue (`#cbf0f8`), Dark blue (`#aecbfa`), Purple (`#d7aefb`), Pink (`#fdcfe8`), Brown (`#e6c9a8`), Gray (`#e8eaed`).
 
 ### Creating and editing notes
 
 - **Add note** creates a new text note and opens the editor.
 - While editing, **Add checkboxes** (toolbar icon) converts a text note into a checklist, splitting non-empty lines into items. **Remove checkboxes** converts back to text, joining item lines with newlines.
-- Editing happens in a modal with autosave after a short debounce and optimistic UI. Icon controls expose native `title` tooltips (close, pin, checkboxes, upload, archive/restore, delete, checklist actions, attachment actions).
+- Editing happens in a modal with autosave after a short debounce and optimistic UI. Local edits clear `contentRendered` / item `textRendered` so the masonry board shows the live draft until the save response restores server-rendered HTML.
+- Icon controls use an instant custom **Tooltip** (not native `title`), portaled into the open `<dialog>` so bubbles appear above the modal top layer. Used for close, pin, color, checkboxes, attach, Markdown, Formatting, archive/restore, delete, checklist actions, formatting menu items, color swatches, and attachment actions.
+- **Editor footer toolbar (left → right):** pin · separator · color palette · add/remove checkboxes · attach file · **M** (Markdown preview toggle) · **A** (Formatting, plain-edit mode only). Right side: archive/restore · delete.
+- **Color palette:** a palette icon opens a horizontal popup of round Keep swatches (default shows a no-fill affordance); colors are not shown as a permanent strip in the modal.
+- **Markdown / Formatting:**
+  - Both TEXT and LIST notes default to a **read-only Markdown preview**. **M** toggles between preview and plain-text editing.
+  - In plain mode, **A** (underlined glyph) opens a horizontal **Formatting** menu of icon-only buttons with tooltips (no visible text labels).
+  - **TEXT** Formatting inserts full markdown: Heading 1 / Heading 2 / Normal text / Code block · Bold / Italic / Underline / Strikethrough · Ordered / Unordered list · Horizontal line. Preview HTML comes from `POST /markdown/preview`.
+  - **LIST** Formatting is limited to the inline subset: Bold / Italic / Strikethrough / Inline code. Preview HTML comes from `POST /markdown/preview` with `inline: true`. In preview, item text is rendered read-only; checkboxes remain interactive; add/delete item controls appear in plain mode.
 - **Labels** appear as chips with an × to remove. A **+** chip opens a menu of all labels known from the user’s notes (plus labels created in-session), with checkmarks to toggle membership, and a field to create a new label. Duplicates are rejected case-insensitively.
 - **Checklist items** support vertical drag-and-drop reorder via a left-side grip handle, plus horizontal drag (or the grip-handle menu: Move up/down, Indent, Deindent) for nesting within the indent rules above.
 - Closing a **new** note with no title, body, checklist text, or attachments discards it (cancel). No empty note is left behind. Notes that already contain content save normally on close.
-- Attachments can be uploaded from the editor; images and files can be downloaded or deleted there.
+- Attachments can be uploaded from the editor; images and files can be downloaded or deleted there. Uploading or deleting an attachment on a TEXT note re-renders `contentRendered` so markdown images that reference attachment filenames stay in sync.
 - **Import from Google Keep** is available from the signed-in user menu: upload a Takeout ZIP, poll job progress, and review warnings when import completes.
 
 ### Client implementation notes

@@ -35,6 +35,7 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.14")
     implementation("org.commonmark:commonmark:0.25.1")
     implementation("org.commonmark:commonmark-ext-autolink:0.25.1")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.25.1")
     implementation("com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20240325.1")
     implementation("org.apache.tika:tika-core:3.2.3")
 

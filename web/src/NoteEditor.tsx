@@ -20,20 +20,33 @@ import {
   ArchiveRestore,
   ArrowDown,
   ArrowUp,
+  Bold,
   Check,
   CircleAlert,
+  Code,
+  Code2,
   DropletOff,
   GripVertical,
+  Heading1,
+  Heading2,
   IndentDecrease,
   IndentIncrease,
+  Italic,
+  List,
   ListChecks,
+  ListOrdered,
   ListX,
   LoaderCircle,
+  Minus,
+  Palette,
   Paperclip,
   Pin,
   Plus,
   RotateCcw,
+  Strikethrough,
   Trash2,
+  Type,
+  Underline,
   X,
 } from 'lucide-react'
 import {
@@ -48,6 +61,20 @@ import {
 } from 'react'
 import { api } from './api'
 import { AttachmentView } from './AttachmentView'
+import {
+  insertFencedCode,
+  insertHorizontalRule,
+  setHeadingLevel,
+  toggleBold,
+  toggleInlineCode,
+  toggleItalic,
+  toggleList,
+  toggleStrikethrough,
+  toggleUnderline,
+  type TextareaSnapshot,
+} from './markdownFormatting'
+import { RenderedMarkdown } from './RenderedMarkdown'
+import { Tooltip } from './Tooltip'
 import type { ChecklistItem, Note, SaveState } from './types'
 import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, noteToWrite, INDENT_DRAG_THRESHOLD_PX, MAX_ITEM_INDENT, normalizeIndents } from './utils'
 
@@ -71,13 +98,27 @@ function isConflict(error: unknown): error is { status: number } {
   )
 }
 
+/** Drop server-rendered HTML so cards show the live raw draft until save completes. */
+function clearRenderedPreview(note: Note): Note {
+  return {
+    ...note,
+    contentRendered: '',
+    items: note.items.map((item) =>
+      item.textRendered ? { ...item, textRendered: '' } : item,
+    ),
+  }
+}
+
 interface SortableChecklistRowProps {
   item: ChecklistItem
   index: number
   itemCount: number
   previousIndent: number
+  readOnly?: boolean
+  previewHtml?: string
   onToggle: (id: string, checked: boolean) => void
   onTextChange: (id: string, text: string) => void
+  onFocusItem: (id: string) => void
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>, index: number) => void
   onMove: (index: number, direction: -1 | 1) => void
   onIndent: (id: string, direction: -1 | 1) => void
@@ -89,8 +130,11 @@ function SortableChecklistRow({
   index,
   itemCount,
   previousIndent,
+  readOnly = false,
+  previewHtml = '',
   onToggle,
   onTextChange,
+  onFocusItem,
   onKeyDown,
   onMove,
   onIndent,
@@ -143,30 +187,31 @@ function SortableChecklistRow({
 
   return (
     <div
-      className={`checklist-row${isDragging ? ' dragging' : ''}`}
+      className={`checklist-row${isDragging ? ' dragging' : ''}${readOnly ? ' preview' : ''}`}
       ref={setNodeRef}
       style={{ ...style, ['--item-indent' as string]: indent }}
     >
       <div className="drag-handle-wrap" ref={menuRef}>
-        <button
-          type="button"
-          className="drag-handle"
-          aria-label={`Checklist item ${index + 1} actions`}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          title="Drag to reorder or indent · Click for actions"
-          onClick={() => {
-            if (dragged.current) {
-              dragged.current = false
-              return
-            }
-            setMenuOpen((open) => !open)
-          }}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical aria-hidden="true" />
-        </button>
+        <Tooltip label="Drag to reorder or indent · Click for actions">
+          <button
+            type="button"
+            className="drag-handle"
+            aria-label={`Checklist item ${index + 1} actions`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => {
+              if (dragged.current) {
+                dragged.current = false
+                return
+              }
+              setMenuOpen((open) => !open)
+            }}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical aria-hidden="true" />
+          </button>
+        </Tooltip>
         {menuOpen && (
           <div className="checklist-item-menu" role="menu" aria-label={`Item ${index + 1} actions`}>
             <button
@@ -222,24 +267,43 @@ function SortableChecklistRow({
         onChange={(event) => onToggle(item.id, event.target.checked)}
         aria-label={`Mark ${item.text || `item ${index + 1}`} complete`}
       />
-      <input
-        data-item-id={item.id}
-        value={item.text}
-        onChange={(event) => onTextChange(item.id, event.target.value)}
-        onKeyDown={(event) => onKeyDown(event, index)}
-        className={item.checked ? 'checked' : ''}
-        placeholder="List item"
-        aria-label={`Checklist item ${index + 1}`}
-      />
-      <button
-        type="button"
-        className="icon-button small"
-        onClick={() => onRemove(item.id)}
-        aria-label={`Delete item ${index + 1}`}
-        title={`Delete item ${index + 1}`}
-      >
-        <X />
-      </button>
+      {readOnly ? (
+        <div
+          className={`checklist-item-preview${item.checked ? ' checked' : ''}`}
+          aria-label={`Checklist item ${index + 1}`}
+        >
+          {previewHtml ? (
+            <RenderedMarkdown className="checklist-markdown" html={previewHtml} inline />
+          ) : item.text ? (
+            <span>{item.text}</span>
+          ) : (
+            <span className="editor-preview-empty">Empty item</span>
+          )}
+        </div>
+      ) : (
+        <input
+          data-item-id={item.id}
+          value={item.text}
+          onChange={(event) => onTextChange(item.id, event.target.value)}
+          onFocus={() => onFocusItem(item.id)}
+          onKeyDown={(event) => onKeyDown(event, index)}
+          className={item.checked ? 'checked' : ''}
+          placeholder="List item"
+          aria-label={`Checklist item ${index + 1}`}
+        />
+      )}
+      {!readOnly && (
+        <Tooltip label={`Delete item ${index + 1}`}>
+          <button
+            type="button"
+            className="icon-button small"
+            onClick={() => onRemove(item.id)}
+            aria-label={`Delete item ${index + 1}`}
+          >
+            <X />
+          </button>
+        </Tooltip>
+      )}
     </div>
   )
 }
@@ -256,7 +320,10 @@ export function NoteEditor({
 }: NoteEditorProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
   const labelMenuRef = useRef<HTMLDivElement>(null)
+  const colorMenuRef = useRef<HTMLDivElement>(null)
+  const formattingMenuRef = useRef<HTMLDivElement>(null)
   const newLabelRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState(note)
   const latestDraft = useRef(note)
@@ -273,6 +340,15 @@ export function NoteEditor({
   const [deleting, setDeleting] = useState(false)
   const [closing, setClosing] = useState(false)
   const [labelMenuOpen, setLabelMenuOpen] = useState(false)
+  const [colorMenuOpen, setColorMenuOpen] = useState(false)
+  const [formattingMenuOpen, setFormattingMenuOpen] = useState(false)
+  /** Preview (read-only) is the default; plain shows the editable source + Formatting toolbar. */
+  const [textEditMode, setTextEditMode] = useState<'preview' | 'plain'>('preview')
+  const [previewHtml, setPreviewHtml] = useState(note.contentRendered)
+  const [itemPreviewHtml, setItemPreviewHtml] = useState<Record<string, string>>(() =>
+    Object.fromEntries(note.items.map((item) => [item.id, item.textRendered])),
+  )
+  const focusedItemId = useRef<string | null>(note.items[0]?.id ?? null)
   const [newLabelText, setNewLabelText] = useState('')
   const [labelError, setLabelError] = useState('')
   const [rememberedLabels, setRememberedLabels] = useState<string[]>(knownLabels)
@@ -344,6 +420,101 @@ export function NoteEditor({
       document.removeEventListener('keydown', closeOnEscape, true)
     }
   }, [labelMenuOpen])
+
+  useEffect(() => {
+    if (!colorMenuOpen) return
+    const closeMenu = (event: MouseEvent) => {
+      if (!colorMenuRef.current?.contains(event.target as Node)) {
+        setColorMenuOpen(false)
+      }
+    }
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        setColorMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', closeMenu)
+    document.addEventListener('keydown', closeOnEscape, true)
+    return () => {
+      document.removeEventListener('mousedown', closeMenu)
+      document.removeEventListener('keydown', closeOnEscape, true)
+    }
+  }, [colorMenuOpen])
+
+  useEffect(() => {
+    if (!formattingMenuOpen) return
+    const closeMenu = (event: MouseEvent) => {
+      if (!formattingMenuRef.current?.contains(event.target as Node)) {
+        setFormattingMenuOpen(false)
+      }
+    }
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        setFormattingMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', closeMenu)
+    document.addEventListener('keydown', closeOnEscape, true)
+    return () => {
+      document.removeEventListener('mousedown', closeMenu)
+      document.removeEventListener('keydown', closeOnEscape, true)
+    }
+  }, [formattingMenuOpen])
+
+  useEffect(() => {
+    if (draft.type !== 'TEXT' || textEditMode !== 'preview') return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      void api
+        .previewMarkdown(draft.contentRaw, draft.attachments, controller.signal)
+        .then((result) => setPreviewHtml(result.html))
+        .catch((reason: unknown) => {
+          if (reason instanceof DOMException && reason.name === 'AbortError') return
+        })
+    }, 220)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [draft.attachments, draft.contentRaw, draft.type, textEditMode])
+
+  useEffect(() => {
+    if (draft.type !== 'LIST' || textEditMode !== 'preview') return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      void Promise.all(
+        draft.items.map(async (item) => {
+          if (!item.text.trim()) return [item.id, ''] as const
+          if (item.textRendered) return [item.id, item.textRendered] as const
+          try {
+            const result = await api.previewMarkdown(
+              item.text,
+              [],
+              controller.signal,
+              { inline: true },
+            )
+            return [item.id, result.html] as const
+          } catch (reason: unknown) {
+            if (reason instanceof DOMException && reason.name === 'AbortError') {
+              return [item.id, ''] as const
+            }
+            return [item.id, ''] as const
+          }
+        }),
+      ).then((entries) => {
+        if (controller.signal.aborted) return
+        setItemPreviewHtml(Object.fromEntries(entries))
+      })
+    }, 220)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [draft.items, draft.type, textEditMode])
 
   const flush = useCallback(async () => {
     if (saving.current || requestedRevision.current <= savedRevision.current) return
@@ -423,7 +594,7 @@ export function NoteEditor({
   }, [revision])
 
   function change(mutator: (current: Note) => Note) {
-    const next = mutator(latestDraft.current)
+    const next = clearRenderedPreview(mutator(latestDraft.current))
     latestDraft.current = next
     requestedRevision.current += 1
     setRevision(requestedRevision.current)
@@ -431,6 +602,62 @@ export function NoteEditor({
     setSaveState('dirty')
     setSaveError('')
     onOptimistic(next)
+  }
+
+  function applyMarkdownFormat(
+    transform: (snapshot: TextareaSnapshot) => {
+      value: string
+      selectionStart: number
+      selectionEnd: number
+    },
+  ) {
+    if (latestDraft.current.type === 'LIST') {
+      const active = document.activeElement
+      const itemInput =
+        active instanceof HTMLInputElement && active.dataset.itemId
+          ? active
+          : (document.querySelector(
+              `input[data-item-id="${focusedItemId.current ?? ''}"]`,
+            ) as HTMLInputElement | null)
+      if (!itemInput?.dataset.itemId) return
+      const itemId = itemInput.dataset.itemId
+      focusedItemId.current = itemId
+      const patch = transform({
+        value: itemInput.value,
+        selectionStart: itemInput.selectionStart ?? itemInput.value.length,
+        selectionEnd: itemInput.selectionEnd ?? itemInput.value.length,
+      })
+      change((current) => ({
+        ...current,
+        items: current.items.map((item) =>
+          item.id === itemId ? { ...item, text: patch.value, textRendered: '' } : item,
+        ),
+      }))
+      window.requestAnimationFrame(() => {
+        const target = document.querySelector(
+          `input[data-item-id="${itemId}"]`,
+        ) as HTMLInputElement | null
+        if (!target) return
+        target.focus()
+        target.setSelectionRange(patch.selectionStart, patch.selectionEnd)
+      })
+      return
+    }
+
+    const textarea = bodyRef.current
+    if (!textarea) return
+    const patch = transform({
+      value: textarea.value,
+      selectionStart: textarea.selectionStart,
+      selectionEnd: textarea.selectionEnd,
+    })
+    change((current) => ({ ...current, contentRaw: patch.value }))
+    window.requestAnimationFrame(() => {
+      const target = bodyRef.current
+      if (!target) return
+      target.focus()
+      target.setSelectionRange(patch.selectionStart, patch.selectionEnd)
+    })
   }
 
   function hasLabel(labels: string[], candidate: string) {
@@ -508,6 +735,7 @@ export function NoteEditor({
     const item: ChecklistItem = {
       id: createId(),
       text: '',
+      textRendered: '',
       checked: false,
       sortOrder: draft.items.length,
       indent: previousIndent,
@@ -533,6 +761,7 @@ export function NoteEditor({
           (lines.length ? lines : ['']).map((text) => ({
             id: createId(),
             text,
+            textRendered: '',
             checked: false,
             sortOrder: 0,
             indent: 0,
@@ -757,16 +986,17 @@ export function NoteEditor({
             {saveState === 'saved' && 'Saved'}
             {saveState === 'error' && 'Could not save'}
           </span>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => void close()}
-            disabled={closing}
-            aria-label="Close editor"
-            title="Close"
-          >
-            {closing ? <LoaderCircle className="spin" /> : <X />}
-          </button>
+          <Tooltip label="Close">
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => void close()}
+              disabled={closing}
+              aria-label="Close editor"
+            >
+              {closing ? <LoaderCircle className="spin" /> : <X />}
+            </button>
+          </Tooltip>
         </header>
 
         <input
@@ -781,17 +1011,35 @@ export function NoteEditor({
         />
 
         {draft.type === 'TEXT' ? (
-          <textarea
-            className="editor-body"
-            value={draft.contentRaw}
-            onChange={(event) =>
-              change((current) => ({ ...current, contentRaw: event.target.value }))
-            }
-            placeholder="Write a note… Markdown is supported."
-            aria-label="Note content"
-          />
+          textEditMode === 'preview' ? (
+            <div className="editor-markdown-preview" aria-label="Markdown preview">
+              {previewHtml ? (
+                <RenderedMarkdown
+                  className="rendered-content"
+                  html={previewHtml}
+                  attachments={draft.attachments}
+                />
+              ) : (
+                <p className="editor-preview-empty">Nothing to preview yet</p>
+              )}
+            </div>
+          ) : (
+            <textarea
+              ref={bodyRef}
+              className="editor-body"
+              value={draft.contentRaw}
+              onChange={(event) =>
+                change((current) => ({ ...current, contentRaw: event.target.value }))
+              }
+              placeholder="Write a note… Use Formatting to insert Markdown."
+              aria-label="Note content"
+            />
+          )
         ) : (
-          <div className="checklist-editor">
+          <div
+            className="checklist-editor"
+            aria-label={textEditMode === 'preview' ? 'Markdown preview' : undefined}
+          >
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={reorderItems}>
               <SortableContext
                 items={draft.items.map((item) => item.id)}
@@ -804,8 +1052,13 @@ export function NoteEditor({
                     index={index}
                     itemCount={draft.items.length}
                     previousIndent={index > 0 ? (draft.items[index - 1].indent ?? 0) : 0}
+                    readOnly={textEditMode === 'preview'}
+                    previewHtml={itemPreviewHtml[item.id] ?? item.textRendered}
                     onToggle={(id, checked) => updateItem(id, { checked })}
                     onTextChange={(id, text) => updateItem(id, { text })}
+                    onFocusItem={(id) => {
+                      focusedItemId.current = id
+                    }}
                     onKeyDown={itemKeyDown}
                     onMove={moveItem}
                     onIndent={adjustItemIndent}
@@ -814,9 +1067,11 @@ export function NoteEditor({
                 ))}
               </SortableContext>
             </DndContext>
-            <button type="button" className="add-item" onClick={addItem}>
-              <Plus aria-hidden="true" /> Add item
-            </button>
+            {textEditMode === 'plain' && (
+              <button type="button" className="add-item" onClick={addItem}>
+                <Plus aria-hidden="true" /> Add item
+              </button>
+            )}
           </div>
         )}
 
@@ -828,33 +1083,35 @@ export function NoteEditor({
             {draft.labels.map((label) => (
               <span className="label-chip" key={label}>
                 <span className="label-chip-text">{label}</span>
-                <button
-                  type="button"
-                  className="label-chip-remove"
-                  onClick={() => removeLabel(label)}
-                  aria-label={`Remove label ${label}`}
-                  title={`Remove ${label}`}
-                >
-                  <X aria-hidden="true" />
-                </button>
+                <Tooltip label={`Remove ${label}`}>
+                  <button
+                    type="button"
+                    className="label-chip-remove"
+                    onClick={() => removeLabel(label)}
+                    aria-label={`Remove label ${label}`}
+                  >
+                    <X aria-hidden="true" />
+                  </button>
+                </Tooltip>
               </span>
             ))}
             <div className="label-add-wrap" ref={labelMenuRef}>
-              <button
-                type="button"
-                className="label-chip label-chip-add"
-                onClick={() => {
-                  setLabelMenuOpen((open) => !open)
-                  setLabelError('')
-                  setNewLabelText('')
-                }}
-                aria-label="Add label"
-                aria-haspopup="menu"
-                aria-expanded={labelMenuOpen}
-                title="Add label"
-              >
-                <Plus aria-hidden="true" />
-              </button>
+              <Tooltip label="Add label">
+                <button
+                  type="button"
+                  className="label-chip label-chip-add"
+                  onClick={() => {
+                    setLabelMenuOpen((open) => !open)
+                    setLabelError('')
+                    setNewLabelText('')
+                  }}
+                  aria-label="Add label"
+                  aria-haspopup="menu"
+                  aria-expanded={labelMenuOpen}
+                >
+                  <Plus aria-hidden="true" />
+                </button>
+              </Tooltip>
               {labelMenuOpen && (
                 <div className="label-menu" role="menu" aria-label="Add label">
                   <div className="label-menu-create">
@@ -954,76 +1211,321 @@ export function NoteEditor({
         )}
 
         <footer className="editor-footer">
-          <div className="color-picker" aria-label="Note color">
-            {NOTE_COLORS.map((color) => {
-              const selected =
-                draft.backgroundColor === color.value ||
-                (color.value === '#ffffff' &&
-                  (!draft.backgroundColor || draft.backgroundColor === 'default'))
-              return (
+          <div className="editor-tools editor-tools-left">
+            <Tooltip label={draft.pinned ? 'Unpin note' : 'Pin note'}>
+              <button
+                type="button"
+                className={`icon-button ${draft.pinned ? 'selected-tool' : ''}`}
+                onClick={() => change((current) => ({ ...current, pinned: !current.pinned }))}
+                aria-label={draft.pinned ? 'Unpin note' : 'Pin note'}
+                aria-pressed={draft.pinned}
+              >
+                <Pin />
+              </button>
+            </Tooltip>
+            <span className="editor-tool-separator" aria-hidden="true" />
+            <div className="color-picker-wrap" ref={colorMenuRef}>
+              <Tooltip label="Color palette">
                 <button
                   type="button"
-                  key={color.value}
-                  className={`color-swatch${selected ? ' selected' : ''}${color.value === '#ffffff' ? ' default' : ''}`}
-                  style={{ backgroundColor: color.value }}
-                  onClick={() =>
-                    change((current) => ({ ...current, backgroundColor: color.value }))
-                  }
-                  aria-label={`${color.label} color`}
-                  aria-pressed={selected}
-                  title={color.label}
+                  className={`icon-button${colorMenuOpen ? ' selected-tool' : ''}`}
+                  onClick={() => setColorMenuOpen((open) => !open)}
+                  aria-label="Color palette"
+                  aria-haspopup="menu"
+                  aria-expanded={colorMenuOpen}
                 >
-                  {color.value === '#ffffff' ? <DropletOff aria-hidden="true" /> : null}
+                  <Palette />
                 </button>
-              )
-            })}
-          </div>
-          <div className="editor-tools">
-            <button
-              type="button"
-              className={`icon-button ${draft.pinned ? 'selected-tool' : ''}`}
-              onClick={() => change((current) => ({ ...current, pinned: !current.pinned }))}
-              aria-label={draft.pinned ? 'Unpin note' : 'Pin note'}
-              aria-pressed={draft.pinned}
-              title={draft.pinned ? 'Unpin note' : 'Pin note'}
+              </Tooltip>
+              {colorMenuOpen && (
+                <div className="color-picker-menu" role="menu" aria-label="Note color">
+                  {NOTE_COLORS.map((color) => {
+                    const selected =
+                      draft.backgroundColor === color.value ||
+                      (color.value === '#ffffff' &&
+                        (!draft.backgroundColor || draft.backgroundColor === 'default'))
+                    return (
+                      <Tooltip label={color.label} key={color.value}>
+                        <button
+                          type="button"
+                          role="menuitemradio"
+                          className={`color-swatch${selected ? ' selected' : ''}${color.value === '#ffffff' ? ' default' : ''}`}
+                          style={{ backgroundColor: color.value }}
+                          onClick={() =>
+                            change((current) => ({
+                              ...current,
+                              backgroundColor: color.value,
+                            }))
+                          }
+                          aria-label={`${color.label} color`}
+                          aria-checked={selected}
+                        >
+                          {color.value === '#ffffff' ? (
+                            <DropletOff aria-hidden="true" />
+                          ) : null}
+                        </button>
+                      </Tooltip>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            <Tooltip
+              label={draft.type === 'TEXT' ? 'Add checkboxes' : 'Remove checkboxes'}
             >
-              <Pin />
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={draft.type === 'TEXT' ? addCheckboxes : removeCheckboxes}
-              aria-label={draft.type === 'TEXT' ? 'Add checkboxes' : 'Remove checkboxes'}
-              title={draft.type === 'TEXT' ? 'Add checkboxes' : 'Remove checkboxes'}
-            >
-              {draft.type === 'TEXT' ? <ListChecks /> : <ListX />}
-            </button>
-            <label className="icon-button file-picker" title="Upload attachment">
-              <Paperclip aria-hidden="true" />
-              <span className="sr-only">Upload attachment</span>
-              <input type="file" onChange={(event) => void upload(event)} />
-            </label>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() =>
-                change((current) => ({ ...current, archived: !current.archived }))
+              <button
+                type="button"
+                className="icon-button"
+                onClick={draft.type === 'TEXT' ? addCheckboxes : removeCheckboxes}
+                aria-label={draft.type === 'TEXT' ? 'Add checkboxes' : 'Remove checkboxes'}
+              >
+                {draft.type === 'TEXT' ? <ListChecks /> : <ListX />}
+              </button>
+            </Tooltip>
+            <Tooltip label="Upload attachment">
+              <label className="icon-button file-picker">
+                <Paperclip aria-hidden="true" />
+                <span className="sr-only">Upload attachment</span>
+                <input type="file" onChange={(event) => void upload(event)} />
+              </label>
+            </Tooltip>
+            <Tooltip
+              label={
+                textEditMode === 'preview'
+                  ? 'Markdown preview — click to edit as plain text'
+                  : 'Plain text — click for Markdown preview'
               }
-              aria-label={draft.archived ? 'Restore note' : 'Archive note'}
-              title={draft.archived ? 'Restore note' : 'Archive note'}
             >
-              {draft.archived ? <ArchiveRestore /> : <Archive />}
-            </button>
-            <button
-              type="button"
-              className="icon-button danger"
-              onClick={() => void removeNote()}
-              disabled={deleting}
-              aria-label="Delete note"
-              title="Delete note"
-            >
-              {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
-            </button>
+              <button
+                type="button"
+                className={`icon-button markdown-toggle${textEditMode === 'preview' ? ' selected-tool' : ''}`}
+                onClick={() => {
+                  setTextEditMode((mode) => (mode === 'preview' ? 'plain' : 'preview'))
+                  setFormattingMenuOpen(false)
+                }}
+                aria-label="Markdown"
+                aria-pressed={textEditMode === 'preview'}
+              >
+                <span className="markdown-toggle-glyph" aria-hidden="true">
+                  M
+                </span>
+              </button>
+            </Tooltip>
+            {textEditMode === 'plain' && (
+              <div className="formatting-wrap" ref={formattingMenuRef}>
+                <Tooltip label="Formatting">
+                  <button
+                    type="button"
+                    className={`icon-button${formattingMenuOpen ? ' selected-tool' : ''}`}
+                    onClick={() => setFormattingMenuOpen((open) => !open)}
+                    aria-label="Formatting"
+                    aria-haspopup="menu"
+                    aria-expanded={formattingMenuOpen}
+                  >
+                    <span className="formatting-toggle-glyph" aria-hidden="true">
+                      A
+                    </span>
+                  </button>
+                </Tooltip>
+                {formattingMenuOpen && (
+                  <div
+                    className="formatting-menu"
+                    role="menu"
+                    aria-label="Formatting"
+                  >
+                    {draft.type === 'TEXT' ? (
+                      <>
+                        <Tooltip label="Heading 1">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Heading 1"
+                            onClick={() => applyMarkdownFormat((s) => setHeadingLevel(s, 1))}
+                          >
+                            <Heading1 aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Heading 2">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Heading 2"
+                            onClick={() => applyMarkdownFormat((s) => setHeadingLevel(s, 2))}
+                          >
+                            <Heading2 aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Normal text">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Normal text"
+                            onClick={() => applyMarkdownFormat((s) => setHeadingLevel(s, 0))}
+                          >
+                            <Type aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Code block">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Code block"
+                            onClick={() => applyMarkdownFormat(insertFencedCode)}
+                          >
+                            <Code2 aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <span className="formatting-menu-separator" aria-hidden="true" />
+                        <Tooltip label="Bold">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Bold"
+                            onClick={() => applyMarkdownFormat(toggleBold)}
+                          >
+                            <Bold aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Italic">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Italic"
+                            onClick={() => applyMarkdownFormat(toggleItalic)}
+                          >
+                            <Italic aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Underline">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Underline"
+                            onClick={() => applyMarkdownFormat(toggleUnderline)}
+                          >
+                            <Underline aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Strikethrough">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Strikethrough"
+                            onClick={() => applyMarkdownFormat(toggleStrikethrough)}
+                          >
+                            <Strikethrough aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <span className="formatting-menu-separator" aria-hidden="true" />
+                        <Tooltip label="Ordered list">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Ordered list"
+                            onClick={() =>
+                              applyMarkdownFormat((s) => toggleList(s, 'ordered'))
+                            }
+                          >
+                            <ListOrdered aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Unordered list">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Unordered list"
+                            onClick={() =>
+                              applyMarkdownFormat((s) => toggleList(s, 'unordered'))
+                            }
+                          >
+                            <List aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <span className="formatting-menu-separator" aria-hidden="true" />
+                        <Tooltip label="Horizontal line">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Horizontal line"
+                            onClick={() => applyMarkdownFormat(insertHorizontalRule)}
+                          >
+                            <Minus aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                      </>
+                    ) : (
+                      <>
+                        <Tooltip label="Bold">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Bold"
+                            onClick={() => applyMarkdownFormat(toggleBold)}
+                          >
+                            <Bold aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Italic">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Italic"
+                            onClick={() => applyMarkdownFormat(toggleItalic)}
+                          >
+                            <Italic aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Strikethrough">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Strikethrough"
+                            onClick={() => applyMarkdownFormat(toggleStrikethrough)}
+                          >
+                            <Strikethrough aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Inline code">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            aria-label="Inline code"
+                            onClick={() => applyMarkdownFormat(toggleInlineCode)}
+                          >
+                            <Code aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="editor-tools editor-tools-right">
+            <Tooltip label={draft.archived ? 'Restore note' : 'Archive note'}>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() =>
+                  change((current) => ({ ...current, archived: !current.archived }))
+                }
+                aria-label={draft.archived ? 'Restore note' : 'Archive note'}
+              >
+                {draft.archived ? <ArchiveRestore /> : <Archive />}
+              </button>
+            </Tooltip>
+            <Tooltip label="Delete note">
+              <button
+                type="button"
+                className="icon-button danger"
+                onClick={() => void removeNote()}
+                disabled={deleting}
+                aria-label="Delete note"
+              >
+                {deleting ? <LoaderCircle className="spin" /> : <Trash2 />}
+              </button>
+            </Tooltip>
           </div>
         </footer>
       </div>

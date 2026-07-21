@@ -154,6 +154,27 @@ class ApiClient {
     return Array.isArray(result) ? result : (result.items ?? [])
   }
 
+  previewMarkdown(
+    markdown: string,
+    attachments: Attachment[],
+    signal?: AbortSignal,
+    options?: { inline?: boolean },
+  ) {
+    return this.request<{ html: string }>('/markdown/preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        markdown,
+        attachments: attachments.map((attachment) => ({
+          id: attachment.id,
+          originalFilename: attachment.originalFilename,
+          kind: attachment.kind,
+        })),
+        inline: options?.inline === true,
+      }),
+      signal,
+    })
+  }
+
   uploadAttachment(
     noteId: string,
     file: File,
