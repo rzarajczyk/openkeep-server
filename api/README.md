@@ -4,10 +4,11 @@ Kotlin/JDK 21 Spring Boot API backed by PostgreSQL.
 
 ## Run locally
 
-Start PostgreSQL, then provide at least one configured user:
+Start PostgreSQL, then provide admin bootstrap credentials (used only when no admin exists yet):
 
 ```sh
-export OPENKEEP_USERS_JSON='[{"login":"admin","password":"change-this-password"}]'
+export OPENKEEP_ADMIN_USERNAME=admin
+export OPENKEEP_ADMIN_PASSWORD=change-this-password
 ./gradlew bootRun
 ```
 
@@ -29,7 +30,7 @@ Markdown for notes is rendered by `MarkdownService` in `Notes.kt`:
 
 ## Configuration
 
-- `OPENKEEP_USERS_JSON` — required JSON array of `{login,password}` objects
+- `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` — bootstrap the first admin when none exists; ignored once an admin is present
 - `OPENKEEP_TOKEN_TTL` — bearer-token lifetime, default `30d`
 - `OPENKEEP_MAX_SYNC_LIMIT` — maximum notes/search page size, default `200`
 - `OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_IP` — max `/auth/login` attempts per client IP per window, default `10`

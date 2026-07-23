@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
       json: {
         token: 'smoke-token',
         expiresAt: '2099-01-01T00:00:00Z',
-        user: { id: 1, login: 'demo' },
+        user: { id: 1, login: 'demo', role: 'USER' },
       },
     }),
   )

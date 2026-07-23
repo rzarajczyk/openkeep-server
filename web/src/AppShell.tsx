@@ -9,8 +9,10 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Settings,
   StickyNote,
   Tag,
+  Users,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
@@ -19,6 +21,8 @@ import { NoteCard } from './NoteCard'
 import { NoteEditor } from './NoteEditor'
 import { NotesMasonry } from './NotesMasonry'
 import { KeepImportDialog } from './KeepImportDialog'
+import { UserManagementDialog } from './UserManagementDialog'
+import { UserSettingsDialog } from './UserSettingsDialog'
 import {
   initialNotesState,
   notesReducer,
@@ -31,6 +35,7 @@ import { errorMessage } from './utils'
 interface AppShellProps {
   user: User
   onLogout: () => Promise<void>
+  onSessionEnded: () => void
 }
 
 interface SyncCursor {
@@ -38,7 +43,7 @@ interface SyncCursor {
   afterId?: string
 }
 
-export function AppShell({ user, onLogout }: AppShellProps) {
+export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   const [state, dispatch] = useReducer(notesReducer, initialNotesState)
   const [archived, setArchived] = useState(false)
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null)
@@ -55,6 +60,8 @@ export function AppShell({ user, onLogout }: AppShellProps) {
   const [navOpen, setNavOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [usersOpen, setUsersOpen] = useState(false)
   const [toast, setToast] = useState('')
   const accountRef = useRef<HTMLDivElement>(null)
   const loaded = useRef(new Set<boolean>())
@@ -392,6 +399,28 @@ export function AppShell({ user, onLogout }: AppShellProps) {
                 role="menuitem"
                 onClick={() => {
                   setAccountOpen(false)
+                  setSettingsOpen(true)
+                }}
+              >
+                <Settings aria-hidden="true" /> User settings
+              </button>
+              {user.role === 'ADMIN' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountOpen(false)
+                    setUsersOpen(true)
+                  }}
+                >
+                  <Users aria-hidden="true" /> Manage users
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountOpen(false)
                   setImportOpen(true)
                 }}
               >
@@ -462,6 +491,28 @@ export function AppShell({ user, onLogout }: AppShellProps) {
             {user.login.slice(0, 1).toUpperCase()}
           </span>
           <span className="user-login">{user.login}</span>
+          <button
+            type="button"
+            className="mobile-import"
+            onClick={() => {
+              setNavOpen(false)
+              setSettingsOpen(true)
+            }}
+          >
+            <Settings aria-hidden="true" /> User settings
+          </button>
+          {user.role === 'ADMIN' && (
+            <button
+              type="button"
+              className="mobile-import"
+              onClick={() => {
+                setNavOpen(false)
+                setUsersOpen(true)
+              }}
+            >
+              <Users aria-hidden="true" /> Manage users
+            </button>
+          )}
           <button
             type="button"
             className="mobile-import"
@@ -617,6 +668,15 @@ export function AppShell({ user, onLogout }: AppShellProps) {
             setToast('Google Keep import completed')
           }}
         />
+      )}
+      {settingsOpen && (
+        <UserSettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onPasswordChanged={onSessionEnded}
+        />
+      )}
+      {usersOpen && (
+        <UserManagementDialog currentUser={user} onClose={() => setUsersOpen(false)} />
       )}
       {toast && (
         <div className="toast" role="status">

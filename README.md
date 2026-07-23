@@ -14,7 +14,7 @@ docker compose up -d --build
 open http://localhost:8080
 ```
 
-Accounts come from `OPENKEEP_USERS_JSON` in `.env`. Never commit `.env`.
+Accounts: set `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` in `.env` to bootstrap the first admin; manage other users in the app. Never commit `.env`.
 
 ## Development
 

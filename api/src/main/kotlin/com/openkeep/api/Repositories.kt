@@ -13,6 +13,8 @@ import java.util.UUID
 interface UserRepository : JpaRepository<UserEntity, Long> {
     fun findByLogin(login: String): UserEntity?
     fun findAllByLoginIn(logins: Collection<String>): List<UserEntity>
+    fun findAllByEnabledTrueOrderByLoginAsc(): List<UserEntity>
+    fun existsByRoleAndEnabledTrue(role: UserRole): Boolean
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from UserEntity u where u.id = :id")
@@ -25,6 +27,10 @@ interface AuthTokenRepository : JpaRepository<AuthTokenEntity, UUID> {
     @Modifying
     @Query("update AuthTokenEntity t set t.revokedAt = :now where t.tokenHash = :hash and t.revokedAt is null")
     fun revoke(@Param("hash") hash: String, @Param("now") now: Instant): Int
+
+    @Modifying
+    @Query("update AuthTokenEntity t set t.revokedAt = :now where t.userId = :userId and t.revokedAt is null")
+    fun revokeAllForUser(@Param("userId") userId: Long, @Param("now") now: Instant): Int
 
     @Modifying
     @Query("delete from AuthTokenEntity t where t.expiresAt < :before or t.revokedAt < :before")

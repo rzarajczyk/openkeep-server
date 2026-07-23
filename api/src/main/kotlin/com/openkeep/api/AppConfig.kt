@@ -17,7 +17,8 @@ import java.time.Duration
 
 @ConfigurationProperties("openkeep")
 data class OpenKeepProperties(
-    var usersJson: String = "",
+    var adminUsername: String = "",
+    var adminPassword: String = "",
     var tokenTtl: Duration = Duration.ofDays(30),
     var maxSyncLimit: Int = 200,
     var loginRateLimit: LoginRateLimitProperties = LoginRateLimitProperties(),

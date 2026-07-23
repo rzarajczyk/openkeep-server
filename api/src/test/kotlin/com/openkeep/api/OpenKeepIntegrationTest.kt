@@ -32,7 +32,8 @@ class OpenKeepPostgres(image: String) : PostgreSQLContainer<OpenKeepPostgres>(im
 
 @SpringBootTest(
     properties = [
-        "openkeep.users-json=[{\"login\":\"alice\",\"password\":\"alice-password\"},{\"login\":\"bob\",\"password\":\"bob-password\"}]",
+        "openkeep.admin-username=alice",
+        "openkeep.admin-password=alice-password",
         "openkeep.token-ttl=1h",
         "openkeep.attachment.max-file-size=64",
         "openkeep.attachment.per-user-quota=32",
@@ -51,6 +52,36 @@ class OpenKeepIntegrationTest {
 
     @Autowired
     lateinit var authTokenRepository: AuthTokenRepository
+
+    @Autowired
+    lateinit var userRepository: UserRepository
+
+    @Autowired
+    lateinit var passwordEncoder: org.springframework.security.crypto.password.PasswordEncoder
+
+    @org.junit.jupiter.api.BeforeEach
+    fun ensureBobUser() {
+        val existing = userRepository.findByLogin("bob")
+        val now = java.time.Instant.now()
+        if (existing == null) {
+            userRepository.save(
+                UserEntity(
+                    login = "bob",
+                    passwordHash = passwordEncoder.encode("bob-password"),
+                    enabled = true,
+                    role = UserRole.USER,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        } else {
+            existing.enabled = true
+            existing.role = UserRole.USER
+            existing.passwordHash = passwordEncoder.encode("bob-password")
+            existing.updatedAt = now
+            userRepository.save(existing)
+        }
+    }
 
     @Test
     fun `authentication note ownership search and deletion sync work end to end`() {
@@ -205,12 +236,86 @@ class OpenKeepIntegrationTest {
         mockMvc.perform(get("/me").header("Authorization", "Bearer $token"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.login").value("alice"))
+            .andExpect(jsonPath("$.role").value("ADMIN"))
 
         mockMvc.perform(post("/auth/logout").header("Authorization", "Bearer $token"))
             .andExpect(status().isNoContent)
 
         mockMvc.perform(get("/me").header("Authorization", "Bearer $token"))
             .andExpect(status().isUnauthorized)
+    }
+
+    @Test
+    fun `admin can manage users and non-admin cannot`() {
+        val aliceToken = login("alice", "alice-password")
+        val bobToken = login("bob", "bob-password")
+
+        mockMvc.perform(get("/users").header("Authorization", "Bearer $bobToken"))
+            .andExpect(status().isForbidden)
+
+        val created = mockMvc.perform(
+            post("/users")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"login":"carol","password":"carol-password"}"""),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.login").value("carol"))
+            .andExpect(jsonPath("$.role").value("USER"))
+            .andReturn()
+        val carolId = objectMapper.readTree(created.response.contentAsString).path("id").asLong()
+
+        mockMvc.perform(get("/users").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$[?(@.login=='carol')]").exists())
+
+        val carolToken = login("carol", "carol-password")
+        mockMvc.perform(
+            post("/users/$carolId/reset-password")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"newPassword":"carol-reset"}"""),
+        )
+            .andExpect(status().isNoContent)
+
+        mockMvc.perform(get("/me").header("Authorization", "Bearer $carolToken"))
+            .andExpect(status().isUnauthorized)
+        login("carol", "carol-reset")
+
+        mockMvc.perform(
+            patch("/me/password")
+                .header("Authorization", "Bearer $bobToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"currentPassword":"bob-password","newPassword":"bob-changed"}"""),
+        )
+            .andExpect(status().isNoContent)
+        mockMvc.perform(get("/me").header("Authorization", "Bearer $bobToken"))
+            .andExpect(status().isUnauthorized)
+        login("bob", "bob-changed")
+
+        val aliceId = userRepository.findByLogin("alice")!!.id!!
+        mockMvc.perform(delete("/users/$aliceId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.code").value("cannot_delete_self"))
+
+        mockMvc.perform(delete("/users/$carolId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isNoContent)
+
+        mockMvc.perform(
+            post("/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"login":"carol","password":"carol-reset"}"""),
+        )
+            .andExpect(status().isUnauthorized)
+
+        mockMvc.perform(
+            post("/users")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"login":"carol","password":"again"}"""),
+        )
+            .andExpect(status().isConflict)
+            .andExpect(jsonPath("$.code").value("login_taken"))
     }
 
     @Test

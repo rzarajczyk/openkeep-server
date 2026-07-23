@@ -15,6 +15,7 @@ import java.util.UUID
 enum class NoteType { TEXT, LIST }
 enum class AttachmentKind { IMAGE, FILE }
 enum class ImportJobStatus { VALIDATING, RUNNING, COMPLETED, FAILED }
+enum class UserRole { ADMIN, USER }
 
 @Entity
 @Table(name = "users")
@@ -28,6 +29,9 @@ class UserEntity(
     var passwordHash: String = "",
     @Column(nullable = false)
     var enabled: Boolean = true,
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    var role: UserRole = UserRole.USER,
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)

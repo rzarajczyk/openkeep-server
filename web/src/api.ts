@@ -96,6 +96,35 @@ class ApiClient {
     return 'user' in result ? result.user : result
   }
 
+  changePassword(currentPassword: string, newPassword: string) {
+    return this.request<void>('/me/password', {
+      method: 'PATCH',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    })
+  }
+
+  listUsers(signal?: AbortSignal) {
+    return this.request<User[]>('/users', { signal })
+  }
+
+  createUser(login: string, password: string) {
+    return this.request<User>('/users', {
+      method: 'POST',
+      body: JSON.stringify({ login, password }),
+    })
+  }
+
+  deleteUser(id: number) {
+    return this.request<void>(`/users/${id}`, { method: 'DELETE' })
+  }
+
+  resetUserPassword(id: number, newPassword: string) {
+    return this.request<void>(`/users/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword }),
+    })
+  }
+
   async notes(
     params: {
       archived?: boolean

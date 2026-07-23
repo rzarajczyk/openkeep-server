@@ -1,6 +1,5 @@
 package com.openkeep.api
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -12,6 +11,7 @@ import org.springframework.boot.ApplicationRunner
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.core.userdetails.UserDetails
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -20,9 +20,9 @@ import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.filter.OncePerRequestFilter
@@ -43,15 +43,25 @@ data class LoginRequest(
     val password: String,
 )
 
-data class MeResponse(val id: Long, val login: String)
+data class ChangePasswordRequest(
+    @field:NotBlank
+    @field:Size(max = 1024)
+    val currentPassword: String,
+    @field:NotBlank
+    @field:Size(max = 1024)
+    val newPassword: String,
+)
+
+data class MeResponse(val id: Long, val login: String, val role: UserRole)
 data class LoginResponse(val token: String, val expiresAt: Instant, val user: MeResponse)
 
 data class OpenKeepPrincipal(
     val userId: Long,
     private val login: String,
+    val role: UserRole,
     val tokenHash: String,
 ) : UserDetails {
-    override fun getAuthorities() = emptyList<org.springframework.security.core.GrantedAuthority>()
+    override fun getAuthorities() = listOf(SimpleGrantedAuthority("ROLE_${role.name}"))
     override fun getPassword() = ""
     override fun getUsername() = login
     override fun isAccountNonExpired() = true
@@ -60,65 +70,75 @@ data class OpenKeepPrincipal(
     override fun isEnabled() = true
 }
 
+fun validateUserPassword(password: String, label: String = "password") {
+    if (password.isBlank()) {
+        throw ApiException(HttpStatus.BAD_REQUEST, "invalid_password", "$label must not be blank")
+    }
+    if (password.toByteArray(StandardCharsets.UTF_8).size > 72) {
+        throw ApiException(
+            HttpStatus.BAD_REQUEST,
+            "invalid_password",
+            "$label exceeds bcrypt's 72-byte limit",
+        )
+    }
+}
+
+fun validateUserLogin(login: String) {
+    val trimmed = login.trim()
+    if (trimmed.isBlank()) {
+        throw ApiException(HttpStatus.BAD_REQUEST, "invalid_login", "login must not be blank")
+    }
+    if (trimmed.length > 255) {
+        throw ApiException(HttpStatus.BAD_REQUEST, "invalid_login", "login exceeds 255 characters")
+    }
+}
+
 @Service
-class UserReconciliationService(
+class AdminBootstrapService(
     private val userRepository: UserRepository,
     private val passwordEncoder: PasswordEncoder,
 ) {
-    data class ConfiguredUser(val login: String, val password: String)
+    fun hasEnabledAdmin(): Boolean = userRepository.existsByRoleAndEnabledTrue(UserRole.ADMIN)
 
     @Transactional
-    fun reconcile(configured: List<ConfiguredUser>) {
+    fun bootstrap(username: String, password: String) {
+        if (hasEnabledAdmin()) return
+
+        validateUserLogin(username)
+        validateUserPassword(password, "admin password")
+        val login = username.trim()
         val now = Instant.now()
-        val existing = userRepository.findAll().associateBy { it.login }
-        configured.forEach { configuredUser ->
-            val user = existing[configuredUser.login]
-            if (user == null) {
-                userRepository.save(
-                    UserEntity(
-                        login = configuredUser.login,
-                        passwordHash = passwordEncoder.encode(configuredUser.password),
-                        enabled = true,
-                        createdAt = now,
-                        updatedAt = now,
-                    ),
+        val existing = userRepository.findByLogin(login)
+        if (existing != null) {
+            if (!existing.enabled) {
+                throw IllegalStateException(
+                    "OPENKEEP_ADMIN_USERNAME matches a disabled user; re-enable or choose a different admin username",
                 )
-            } else {
-                var changed = false
-                val passwordMatches = try {
-                    passwordEncoder.matches(configuredUser.password, user.passwordHash)
-                } catch (_: IllegalArgumentException) {
-                    false
-                }
-                if (!passwordMatches) {
-                    user.passwordHash = passwordEncoder.encode(configuredUser.password)
-                    changed = true
-                }
-                if (!user.enabled) {
-                    user.enabled = true
-                    changed = true
-                }
-                if (changed) {
-                    user.updatedAt = now
-                    userRepository.save(user)
-                }
             }
+            existing.role = UserRole.ADMIN
+            existing.passwordHash = passwordEncoder.encode(password)
+            existing.updatedAt = now
+            userRepository.save(existing)
+            return
         }
 
-        val configuredLogins = configured.mapTo(mutableSetOf()) { it.login }
-        existing.values.filter { it.login !in configuredLogins && it.enabled }.forEach {
-            it.enabled = false
-            it.updatedAt = now
-            userRepository.save(it)
-        }
+        userRepository.save(
+            UserEntity(
+                login = login,
+                passwordHash = passwordEncoder.encode(password),
+                enabled = true,
+                role = UserRole.ADMIN,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
     }
 }
 
 @Component
-class UserReconciliationRunner(
+class AdminBootstrapRunner(
     private val properties: OpenKeepProperties,
-    private val objectMapper: ObjectMapper,
-    private val reconciliationService: UserReconciliationService,
+    private val bootstrapService: AdminBootstrapService,
 ) : ApplicationRunner {
     override fun run(args: ApplicationArguments) {
         require(properties.tokenTtl.isNegative.not() && properties.tokenTtl.isZero.not()) {
@@ -143,45 +163,15 @@ class UserReconciliationRunner(
             "openkeep.takeout-import.max-uncompressed-size must be positive"
         }
         require(properties.takeoutImport.maxWarnings > 0) { "openkeep.takeout-import.max-warnings must be positive" }
-        val configured = parse(properties.usersJson)
-        if (configured.isEmpty()) {
-            throw IllegalStateException("OPENKEEP_USERS_JSON must configure at least one user")
-        }
-        reconciliationService.reconcile(configured)
-    }
 
-    private fun parse(json: String): List<UserReconciliationService.ConfiguredUser> {
-        if (json.isBlank()) return emptyList()
-        val root = try {
-            objectMapper.readTree(json)
-        } catch (ex: Exception) {
-            throw IllegalStateException("OPENKEEP_USERS_JSON must be a valid JSON array", ex)
+        if (bootstrapService.hasEnabledAdmin()) return
+
+        if (properties.adminUsername.isBlank() || properties.adminPassword.isBlank()) {
+            throw IllegalStateException(
+                "OPENKEEP_ADMIN_USERNAME and OPENKEEP_ADMIN_PASSWORD are required when no admin user exists",
+            )
         }
-        if (!root.isArray) throw IllegalStateException("OPENKEEP_USERS_JSON must be a JSON array")
-        val users = root.mapIndexed { index, node ->
-            val loginNode = node.get("login")
-            val passwordNode = node.get("password")
-            if (!node.isObject || loginNode == null || !loginNode.isTextual || passwordNode == null || !passwordNode.isTextual) {
-                throw IllegalStateException("OPENKEEP_USERS_JSON entry $index must contain string login and password fields")
-            }
-            val login = loginNode.asText().trim()
-            val password = passwordNode.asText()
-            if (login.isBlank() || password.isBlank()) {
-                throw IllegalStateException("OPENKEEP_USERS_JSON entry $index has a blank login or password")
-            }
-            if (login.length > 255) {
-                throw IllegalStateException("OPENKEEP_USERS_JSON entry $index login exceeds 255 characters")
-            }
-            if (password.toByteArray(StandardCharsets.UTF_8).size > 72) {
-                throw IllegalStateException("OPENKEEP_USERS_JSON entry $index password exceeds bcrypt's 72-byte limit")
-            }
-            UserReconciliationService.ConfiguredUser(login, password)
-        }
-        val duplicates = users.groupBy { it.login }.filterValues { it.size > 1 }.keys
-        if (duplicates.isNotEmpty()) {
-            throw IllegalStateException("OPENKEEP_USERS_JSON contains duplicate logins: ${duplicates.sorted().joinToString()}")
-        }
-        return users
+        bootstrapService.bootstrap(properties.adminUsername, properties.adminPassword)
     }
 }
 
@@ -218,7 +208,11 @@ class AuthService(
             ),
         )
         authTokenRepository.deleteExpiredAndRevokedBefore(now.minusSeconds(7 * 24 * 60 * 60))
-        return LoginResponse(rawToken, expiresAt, MeResponse(requireNotNull(user.id), user.login))
+        return LoginResponse(
+            rawToken,
+            expiresAt,
+            MeResponse(requireNotNull(user.id), user.login, user.role),
+        )
     }
 
     @Transactional(readOnly = true)
@@ -228,12 +222,31 @@ class AuthService(
             ?: return null
         val user = userRepository.findById(token.userId).orElse(null) ?: return null
         if (!user.enabled) return null
-        return OpenKeepPrincipal(requireNotNull(user.id), user.login, token.tokenHash)
+        return OpenKeepPrincipal(requireNotNull(user.id), user.login, user.role, token.tokenHash)
     }
 
     @Transactional
     fun logout(tokenHash: String) {
         authTokenRepository.revoke(tokenHash, clock.instant())
+    }
+
+    @Transactional
+    fun changePassword(userId: Long, request: ChangePasswordRequest) {
+        validateUserPassword(request.newPassword, "new password")
+        val user = userRepository.findById(userId).orElse(null)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
+        val currentWithinLimit = request.currentPassword.toByteArray(StandardCharsets.UTF_8).size <= 72
+        val matches = currentWithinLimit && runCatching {
+            passwordEncoder.matches(request.currentPassword, user.passwordHash)
+        }.getOrDefault(false)
+        if (!matches) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_credentials", "Current password is incorrect")
+        }
+        val now = clock.instant()
+        user.passwordHash = passwordEncoder.encode(request.newPassword)
+        user.updatedAt = now
+        userRepository.save(user)
+        authTokenRepository.revokeAllForUser(userId, now)
     }
 
     companion object {
@@ -351,10 +364,20 @@ class AuthController(
 }
 
 @RestController
-class MeController {
+class MeController(private val authService: AuthService) {
     @GetMapping("/me")
     fun me(authentication: UsernamePasswordAuthenticationToken): MeResponse {
         val principal = authentication.principal as OpenKeepPrincipal
-        return MeResponse(principal.userId, principal.username)
+        return MeResponse(principal.userId, principal.username, principal.role)
+    }
+
+    @PatchMapping("/me/password")
+    fun changePassword(
+        authentication: UsernamePasswordAuthenticationToken,
+        @Valid @RequestBody request: ChangePasswordRequest,
+    ): ResponseEntity<Void> {
+        val principal = authentication.principal as OpenKeepPrincipal
+        authService.changePassword(principal.userId, request)
+        return ResponseEntity.noContent().build()
     }
 }

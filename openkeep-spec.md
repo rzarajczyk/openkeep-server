@@ -33,8 +33,9 @@ Authentication is sessionless: login returns a bearer token, and every request i
 ## Data Model
 
 ### Users
-- `id`, `login`, `password_hash`, `enabled`, `created_at`, `updated_at`
-- Accounts are provisioned from `OPENKEEP_USERS_JSON` (not a public signup UI)
+- `id`, `login`, `password_hash`, `enabled`, `role` (`ADMIN` or `USER`), `created_at`, `updated_at`
+- The first admin is bootstrapped once from `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` when no enabled admin exists
+- Additional users are created by an admin in the app (no public signup). Soft-delete sets `enabled=false` and revokes tokens; login remains reserved
 
 ### Auth tokens
 - `id`, `user_id`, `token_hash` (SHA-256 hex), `expires_at`, `created_at`, `revoked_at`
@@ -88,7 +89,12 @@ Core endpoints:
 
 - `POST /auth/login`
 - `POST /auth/logout`
-- `GET /me`
+- `GET /me` — `{ id, login, role }`
+- `PATCH /me/password` — `{ currentPassword, newPassword }`; revokes all of the caller’s tokens
+- `GET /users` — admin only; enabled users
+- `POST /users` — admin only; create a `USER` with `{ login, password }`
+- `DELETE /users/:id` — admin only; soft-delete (cannot delete self or admin)
+- `POST /users/:id/reset-password` — admin only; `{ newPassword }` (cannot reset self; use settings)
 - `GET /notes` (supports `updated_after`, `after_id`, `limit`, `archived` for incremental sync)
 - `POST /notes`
 - `GET /notes/:id`
@@ -141,6 +147,7 @@ Each card shows the title when present (empty titles are omitted — no “Untit
 - **Checklist items** support vertical drag-and-drop reorder via a left-side grip handle, plus horizontal drag (or the grip-handle menu: Move up/down, Indent, Deindent) for nesting within the indent rules above.
 - Closing a **new** note with no title, body, checklist text, or attachments discards it (cancel). No empty note is left behind. Notes that already contain content save normally on close.
 - Attachments can be uploaded from the editor; images and files can be downloaded or deleted there. Uploading or deleting an attachment on a TEXT note re-renders `contentRendered` so markdown images that reference attachment filenames stay in sync.
+- **User settings** (all users) and **Manage users** (admin only) are available from the signed-in user menu, alongside **Import from Google Keep**.
 - **Import from Google Keep** is available from the signed-in user menu: upload a Takeout ZIP, poll job progress, and review warnings when import completes.
 
 ### Client implementation notes

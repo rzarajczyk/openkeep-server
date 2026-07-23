@@ -38,7 +38,8 @@ services:
       - SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE=26214400B
       - SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE=27262976B
       - SERVER_FORWARD_HEADERS_STRATEGY=framework
-      - 'OPENKEEP_USERS_JSON=[{"login":"your_login","password":"choose_a_strong_password"}]'
+      - OPENKEEP_ADMIN_USERNAME=your_admin_login
+      - OPENKEEP_ADMIN_PASSWORD=choose_a_strong_admin_password
       - OPENKEEP_TOKEN_TTL=PT24H
       - OPENKEEP_ATTACHMENT_STORAGE_ROOT=/data/attachments
       - OPENKEEP_ATTACHMENT_MAX_FILE_SIZE=26214400
@@ -64,7 +65,7 @@ services:
     restart: unless-stopped
 ```
 
-Use the same value for both `POSTGRES_PASSWORD` entries. Add more users by extending `OPENKEEP_USERS_JSON` with additional `{login,password}` objects. Keep the JSON on one line and wrap the value in single quotes so YAML does not mangle `[` or special characters in passwords.
+Use the same value for both `POSTGRES_PASSWORD` entries. `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` bootstrap the first admin on first start; create additional users from **Manage users** in the app.
 
 ## Before first start
 
@@ -93,13 +94,13 @@ docker compose ... restart api
 
 **`Invalid login or password` in the browser, but `curl` to `/api/auth/login` works**
 
-The web container serves `/api` on the same origin as the UI. Verify the credentials match `OPENKEEP_USERS_JSON`:
+The web container serves `/api` on the same origin as the UI. Verify the admin bootstrap credentials (or a user created in **Manage users**):
 
 ```sh
-docker exec openkeep-api printenv OPENKEEP_USERS_JSON
+docker exec openkeep-api printenv OPENKEEP_ADMIN_USERNAME
 curl -i -X POST http://localhost:7001/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"login":"your_login","password":"your_password"}'
+  -d '{"login":"your_admin_login","password":"your_admin_password"}'
 ```
 
 If `curl` succeeds but the browser still fails, check DevTools → Network for the `POST /api/auth/login` request URL and status. An external reverse proxy must forward `/api` to the web container, not only `/`.
@@ -119,7 +120,7 @@ The API service must be named `api` (not `openkeep-api`). Docker DNS resolves se
 
 ## Notes
 
-- Accounts are defined only via `OPENKEEP_USERS_JSON`. Changing that value and restarting the API creates, updates, or disables users.
+- The first admin is bootstrapped once from `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD`. After that, manage users in the app (create, soft-delete, reset password). Env changes on restart do not overwrite an existing admin.
 - The web container proxies `/api` to the API service on the Compose network; use one browser origin (for example `http://<your-omv-ip>:7001`).
 - PostgreSQL data is stored under `CHANGE_TO_COMPOSE_DATA_PATH/openkeep/postgres`.
 - Attachments are stored under `CHANGE_TO_COMPOSE_DATA_PATH/openkeep/attachments`. Google Keep Takeout import stages ZIP contents under that same volume (`.imports`) unless you set a dedicated staging root.

@@ -1,9 +1,12 @@
 export type NoteType = 'TEXT' | 'LIST'
 export type AttachmentKind = 'IMAGE' | 'FILE'
 
+export type UserRole = 'ADMIN' | 'USER'
+
 export interface User {
   id: number
   login: string
+  role: UserRole
 }
 
 export interface AuthSession {

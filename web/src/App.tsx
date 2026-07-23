@@ -91,7 +91,7 @@ function App() {
 
   if (!session) return <Login onLogin={login} />
 
-  return <AppShell user={session.user} onLogout={logout} />
+  return <AppShell user={session.user} onLogout={logout} onSessionEnded={resetSession} />
 }
 
 export default App

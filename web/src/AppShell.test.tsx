@@ -11,8 +11,16 @@ vi.mock('./api', () => ({
     search: vi.fn(),
     uploadGoogleKeep: vi.fn(),
     keepImport: vi.fn(),
+    changePassword: vi.fn(),
+    listUsers: vi.fn(),
+    createUser: vi.fn(),
+    deleteUser: vi.fn(),
+    resetUserPassword: vi.fn(),
   },
 }))
+
+const testUser = { id: 1, login: 'rafal', role: 'USER' as const }
+const adminUser = { id: 1, login: 'admin', role: 'ADMIN' as const }
 
 function note(partial: Partial<Note> & Pick<Note, 'id' | 'title' | 'pinned'>): Note {
   return {
@@ -50,7 +58,7 @@ describe('pinned notes layout', () => {
   })
 
   it('shows pinned notes in a Pinned section above Others', async () => {
-    render(<AppShell user={{ id: 1, login: 'rafal' }} onLogout={vi.fn()} />)
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
 
     expect(await screen.findByRole('heading', { name: 'Pinned' })).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Others' })).toBeVisible()
@@ -119,7 +127,7 @@ describe('Google Keep import', () => {
       completedAt: '2026-01-01T00:00:02Z',
     })
 
-    render(<AppShell user={{ id: 1, login: 'rafal' }} onLogout={vi.fn()} />)
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
     await waitFor(() => expect(api.notes).toHaveBeenCalled())
 
     await user.click(screen.getByRole('button', { name: /rafal/i }))
@@ -145,7 +153,7 @@ describe('Google Keep import', () => {
 
   it('rejects a non-ZIP file before upload', async () => {
     const user = userEvent.setup()
-    render(<AppShell user={{ id: 1, login: 'rafal' }} onLogout={vi.fn()} />)
+    render(<AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: /rafal/i }))
     await user.click(screen.getByRole('menuitem', { name: 'Import from Google Keep' }))
@@ -156,5 +164,47 @@ describe('Google Keep import', () => {
 
     expect(screen.getByText('Choose a .zip file downloaded from Google Takeout.')).toBeVisible()
     expect(api.uploadGoogleKeep).not.toHaveBeenCalled()
+  })
+})
+
+describe('account menu roles', () => {
+  beforeEach(() => {
+    vi.mocked(api.notes).mockReset()
+    vi.mocked(api.notes).mockResolvedValue({
+      items: [],
+      deletedIds: [],
+      nextUpdatedAfter: null,
+      nextAfterId: null,
+      hasMore: false,
+    })
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true,
+      value: function showModal(this: HTMLDialogElement) {
+        this.setAttribute('open', '')
+      },
+    })
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true,
+      value: vi.fn(),
+    })
+  })
+
+  it('shows user settings for every user and manage users only for admins', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(
+      <AppShell user={testUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />,
+    )
+    await waitFor(() => expect(api.notes).toHaveBeenCalled())
+
+    await user.click(screen.getByRole('button', { name: /rafal/i }))
+    expect(screen.getByRole('menuitem', { name: 'User settings' })).toBeVisible()
+    expect(screen.queryByRole('menuitem', { name: 'Manage users' })).toBeNull()
+
+    unmount()
+    render(<AppShell user={adminUser} onLogout={vi.fn()} onSessionEnded={vi.fn()} />)
+    await waitFor(() => expect(api.notes).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: /admin/i }))
+    expect(screen.getByRole('menuitem', { name: 'User settings' })).toBeVisible()
+    expect(screen.getByRole('menuitem', { name: 'Manage users' })).toBeVisible()
   })
 })

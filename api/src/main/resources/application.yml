@@ -45,7 +45,8 @@ springdoc:
     enabled: false
 
 openkeep:
-  users-json: ${OPENKEEP_USERS_JSON:}
+  admin-username: ${OPENKEEP_ADMIN_USERNAME:}
+  admin-password: ${OPENKEEP_ADMIN_PASSWORD:}
   token-ttl: ${OPENKEEP_TOKEN_TTL:30d}
   max-sync-limit: ${OPENKEEP_MAX_SYNC_LIMIT:200}
   login-rate-limit:

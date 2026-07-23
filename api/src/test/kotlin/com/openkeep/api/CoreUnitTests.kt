@@ -267,38 +267,55 @@ class CoreUnitTests {
     }
 
     @Test
-    fun `user reconciliation rotates changed passwords and disables omitted users`() {
+    fun `admin bootstrap creates admin when none exists`() {
         val repository = Mockito.mock(UserRepository::class.java)
         val encoder = BCryptPasswordEncoder(4)
-        val alice = UserEntity(1, "alice", encoder.encode("old-password"), true, Instant.now(), Instant.now())
-        val bob = UserEntity(2, "bob", encoder.encode("bob-password"), true, Instant.now(), Instant.now())
-        Mockito.`when`(repository.findAll()).thenReturn(listOf(alice, bob))
+        Mockito.`when`(repository.existsByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(false)
+        Mockito.`when`(repository.findByLogin("admin")).thenReturn(null)
 
-        UserReconciliationService(repository, encoder).reconcile(
-            listOf(UserReconciliationService.ConfiguredUser("alice", "new-password")),
-        )
+        AdminBootstrapService(repository, encoder).bootstrap("admin", "admin-password")
 
-        assertThat(encoder.matches("new-password", alice.passwordHash)).isTrue()
-        assertThat(alice.enabled).isTrue()
-        assertThat(bob.enabled).isFalse()
-        Mockito.verify(repository).save(alice)
-        Mockito.verify(repository).save(bob)
+        val captor = org.mockito.ArgumentCaptor.forClass(UserEntity::class.java)
+        Mockito.verify(repository).save(captor.capture())
+        assertThat(captor.value.login).isEqualTo("admin")
+        assertThat(captor.value.role).isEqualTo(UserRole.ADMIN)
+        assertThat(captor.value.enabled).isTrue()
+        assertThat(encoder.matches("admin-password", captor.value.passwordHash)).isTrue()
     }
 
     @Test
-    fun `user reconciliation leaves matching enabled user hash unchanged`() {
+    fun `admin bootstrap is a no-op when an enabled admin already exists`() {
         val repository = Mockito.mock(UserRepository::class.java)
         val encoder = BCryptPasswordEncoder(4)
-        val hash = encoder.encode("same-password")
-        val alice = UserEntity(1, "alice", hash, true, Instant.now(), Instant.now())
-        Mockito.`when`(repository.findAll()).thenReturn(listOf(alice))
+        Mockito.`when`(repository.existsByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(true)
 
-        UserReconciliationService(repository, encoder).reconcile(
-            listOf(UserReconciliationService.ConfiguredUser("alice", "same-password")),
-        )
+        AdminBootstrapService(repository, encoder).bootstrap("other", "other-password")
 
-        assertThat(alice.passwordHash).isEqualTo(hash)
+        Mockito.verify(repository, Mockito.never()).findByLogin(Mockito.anyString())
         Mockito.verify(repository, Mockito.never()).save(Mockito.any(UserEntity::class.java))
+    }
+
+    @Test
+    fun `admin bootstrap promotes matching user to admin when no admin exists`() {
+        val repository = Mockito.mock(UserRepository::class.java)
+        val encoder = BCryptPasswordEncoder(4)
+        val existing = UserEntity(
+            id = 1,
+            login = "admin",
+            passwordHash = encoder.encode("old-password"),
+            enabled = true,
+            role = UserRole.USER,
+            createdAt = Instant.now(),
+            updatedAt = Instant.now(),
+        )
+        Mockito.`when`(repository.existsByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(false)
+        Mockito.`when`(repository.findByLogin("admin")).thenReturn(existing)
+
+        AdminBootstrapService(repository, encoder).bootstrap("admin", "new-password")
+
+        assertThat(existing.role).isEqualTo(UserRole.ADMIN)
+        assertThat(encoder.matches("new-password", existing.passwordHash)).isTrue()
+        Mockito.verify(repository).save(existing)
     }
 }
 
