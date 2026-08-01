@@ -1,14 +1,23 @@
 # OpenKeep — Application Specification
 
-Self-hosted, Docker-packaged alternative to Google Keep, with multi-user accounts, notes (text/list), labels, pinning, attachments, Google Keep Takeout import, sync API, and a web client.
+Self-hosted, Docker-packaged alternative to Google Keep, with multi-user accounts, **zero-knowledge encrypted** notes (text/list), labels, pinning, attachments, client-side Google Keep Takeout import, sync API, and a web client.
 
 ## Product Scope
 
-OpenKeep is a multi-user notes app for small self-hosted deployments, packaged with Docker and exposing both a server API and a browser client. Core value: sign in, create notes, optionally turn them into checklists while editing, organize with labels and pins, see them sync automatically, and browse them in a Google Keep-style column layout.
+OpenKeep is a multi-user notes app for small self-hosted deployments, packaged with Docker and exposing both a server API and a browser client. Core value: sign in, unlock a per-user vault, create encrypted notes, organize with labels and pins, sync ciphertext automatically, and browse notes after client-side decrypt in a Google Keep-style layout.
 
-**In scope:** text and checklist notes, checklist item indentation, labels, pin/archive, attachments, full-text-ish search (`ILIKE`), incremental sync, and Google Keep Takeout ZIP import.
+**In scope:** zero-knowledge encryption (Argon2id + AES-GCM), text and checklist notes, checklist item indentation, encrypted labels, pin/archive, encrypted attachments, **client-side** search/sort/markdown preview, incremental sync of opaque note blobs, client-side Google Keep Takeout ZIP import, recovery key after admin password reset.
 
-**Out of scope for v1:** reminders, note sharing between users, OCR, offline-first sync, and native mobile apps. v1 optimizes for simplicity, predictable storage, and easy deployment.
+**Out of scope for v1:** reminders, note sharing between users (per-note keys are stored to enable sharing later), OCR, offline-first sync, server-side search/markdown, and native mobile apps.
+
+### Zero-knowledge model
+
+- Login password (bcrypt on server) also derives a wrapping key (Argon2id) for a random vault key.
+- Each note has a random note key, wrapped by the vault key; note body/items/label IDs live in AES-GCM ciphertext.
+- Attachments are encrypted under the note key; filename/mime/kind live in encrypted attachment meta.
+- Password change rewraps the vault key only (no re-encryption of notes).
+- Admin password reset clears the password wrap; the user must unlock with a one-time recovery key to install a new password wrap.
+- Server never sees plaintext note/attachment content. Auth tokens still authorize access to ciphertext.
 
 ## Architecture
 
@@ -33,7 +42,7 @@ Authentication is sessionless: login returns a bearer token, and every request i
 ## Data Model
 
 ### Users
-- `id`, `login`, `password_hash`, `enabled`, `role` (`ADMIN` or `USER`), `created_at`, `updated_at`
+- `id`, `login`, `password_hash`, `enabled`, `role` (`ADMIN` or `USER`), vault fields (`kdf_salt`, `kdf_params`, `wrapped_vault_key`, `wrapped_vault_key_recovery`, `vault_initialized_at`), `created_at`, `updated_at`
 - The first admin is bootstrapped once from `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` when no enabled admin exists
 - Additional users are created by an admin in the app (no public signup). Soft-delete sets `enabled=false` and revokes tokens; login remains reserved
 
@@ -41,13 +50,12 @@ Authentication is sessionless: login returns a bearer token, and every request i
 - `id`, `user_id`, `token_hash` (SHA-256 hex), `expires_at`, `created_at`, `revoked_at`
 
 ### Notes
-- `id`, `user_id`, `type` (`TEXT` or `LIST`), `title`, `content_raw`, `content_rendered`, `background_color`
+- `id`, `user_id`, `type` (`TEXT` or `LIST`), `background_color`, `wrapped_note_key`, `ciphertext`
 - `is_archived`, `is_pinned`, `created_at`, `updated_at`, `version` (optimistic concurrency), `deleted_at` (soft delete)
+- Title, body, checklist items, and label ID list live inside `ciphertext` (client JSON payload v1)
 
-### Note Items (for list notes)
-- `id`, `note_id`, `text`, `checked`, `sort_order`, `indent`
-- `indent` is an integer nesting level (**0–5**). Server and client normalize so the first item is always `0`, and each following item is at most one deeper than the previous item.
-- API responses include `textRendered`: sanitized inline HTML derived from `text` (bold, italic, inline code, links, bare URLs, strikethrough). Not stored in the database.
+### Note Items
+- Not stored as server rows; checklist structure is inside note ciphertext.
 
 ### Labels
 - `labels`: `id`, `user_id`, `name` (1–500 printable characters, unique per user), `created_at`

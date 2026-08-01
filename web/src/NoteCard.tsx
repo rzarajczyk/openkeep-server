@@ -52,7 +52,12 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
           .filter((attachment) => attachment.kind === 'IMAGE')
           .slice(0, 1)
           .map((attachment) => (
-            <AttachmentView attachment={attachment} compact key={attachment.id} />
+            <AttachmentView
+              noteId={note.id}
+              attachment={attachment}
+              compact
+              key={attachment.id}
+            />
           ))}
         {note.title ? <h2>{note.title}</h2> : null}
         {note.type === 'TEXT' ? (
@@ -60,6 +65,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
             <RenderedMarkdown
               className="rendered-content"
               html={note.contentRendered}
+              noteId={note.id}
               attachments={note.attachments}
             />
           ) : (
@@ -78,6 +84,7 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
                   <RenderedMarkdown
                     className="checklist-markdown"
                     html={item.textRendered}
+                    noteId={note.id}
                     inline
                   />
                 ) : (
@@ -100,7 +107,12 @@ export function NoteCard({ note, onOpen, onArchive, onDelete }: NoteCardProps) {
           {note.attachments
             .filter((attachment) => attachment.kind === 'FILE')
             .map((attachment) => (
-              <AttachmentView attachment={attachment} compact key={attachment.id} />
+              <AttachmentView
+                noteId={note.id}
+                attachment={attachment}
+                compact
+                key={attachment.id}
+              />
             ))}
         </div>
       )}

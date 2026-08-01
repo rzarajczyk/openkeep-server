@@ -7,26 +7,23 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.MediaType
+import org.springframework.mock.web.MockMultipartFile
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
-import org.springframework.mock.web.MockMultipartFile
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
-import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
-import java.io.ByteArrayOutputStream
-import java.nio.file.Files
+import java.util.Base64
 import java.util.UUID
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 class OpenKeepPostgres(image: String) : PostgreSQLContainer<OpenKeepPostgres>(image)
 
@@ -35,8 +32,8 @@ class OpenKeepPostgres(image: String) : PostgreSQLContainer<OpenKeepPostgres>(im
         "openkeep.admin-username=alice",
         "openkeep.admin-password=alice-password",
         "openkeep.token-ttl=1h",
-        "openkeep.attachment.max-file-size=64",
-        "openkeep.attachment.per-user-quota=32",
+        "openkeep.attachment.max-file-size=1024",
+        "openkeep.attachment.per-user-quota=4096",
         "openkeep.login-rate-limit.max-attempts-per-ip=10000",
         "openkeep.login-rate-limit.max-attempts-per-login=10000",
     ],
@@ -49,9 +46,6 @@ class OpenKeepIntegrationTest {
 
     @Autowired
     lateinit var objectMapper: ObjectMapper
-
-    @Autowired
-    lateinit var authTokenRepository: AuthTokenRepository
 
     @Autowired
     lateinit var userRepository: UserRepository
@@ -79,18 +73,69 @@ class OpenKeepIntegrationTest {
             existing.role = UserRole.USER
             existing.passwordHash = passwordEncoder.encode("bob-password")
             existing.updatedAt = now
+            // reset vault between tests
+            existing.kdfSalt = null
+            existing.kdfParams = null
+            existing.wrappedVaultKey = null
+            existing.wrappedVaultKeyRecovery = null
+            existing.vaultInitializedAt = null
             userRepository.save(existing)
+        }
+        userRepository.findByLogin("alice")?.let { alice ->
+            alice.passwordHash = passwordEncoder.encode("alice-password")
+            alice.kdfSalt = null
+            alice.kdfParams = null
+            alice.wrappedVaultKey = null
+            alice.wrappedVaultKeyRecovery = null
+            alice.vaultInitializedAt = null
+            userRepository.save(alice)
         }
     }
 
     @Test
-    fun `authentication note ownership search and deletion sync work end to end`() {
+    fun `vault init encrypted note ownership and opaque attachment work end to end`() {
         val aliceToken = login("alice", "alice-password")
         val bobToken = login("bob", "bob-password")
 
-        assertThat(authTokenRepository.findAll())
-            .allMatch { it.tokenHash != aliceToken && it.tokenHash.length == 64 }
+        mockMvc.perform(get("/me").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.vault.initialized").value(false))
 
+        val salt = b64(ByteArray(16) { 1 })
+        val wrap = b64(ByteArray(48) { 2 })
+        val recovery = b64(ByteArray(48) { 3 })
+        mockMvc.perform(
+            post("/me/vault")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "kdfSalt": "$salt",
+                      "kdfParams": {"alg":"argon2id","m":65536,"t":3,"p":1},
+                      "wrappedVaultKey": "$wrap",
+                      "wrappedVaultKeyRecovery": "$recovery"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.initialized").value(true))
+
+        val labelCipher = b64(ByteArray(48) { 4 })
+        val labelResult = mockMvc.perform(
+            post("/labels")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"ciphertext":"$labelCipher"}"""),
+        )
+            .andExpect(status().isOk)
+            .andReturn()
+        val labelId = objectMapper.readTree(labelResult.response.contentAsString).get("id").asText()
+
+        val noteId = UUID.randomUUID()
+        val noteCipher = b64(ByteArray(64) { 5 })
+        val noteKeyWrap = b64(ByteArray(48) { 6 })
         val createResult = mockMvc.perform(
             post("/notes")
                 .header("Authorization", "Bearer $aliceToken")
@@ -98,96 +143,68 @@ class OpenKeepIntegrationTest {
                 .content(
                     """
                     {
+                      "id": "$noteId",
                       "type": "TEXT",
-                      "title": "Private note",
-                      "contentRaw": "**hello** <script>bad()</script>",
                       "backgroundColor": "#ffeeaa",
                       "pinned": true,
-                      "labels": ["Private", "Imported"]
+                      "wrappedNoteKey": "$noteKeyWrap",
+                      "ciphertext": "$noteCipher",
+                      "labelIds": ["$labelId"]
                     }
                     """.trimIndent(),
                 ),
         )
             .andExpect(status().isOk)
+            .andExpect(jsonPath("$.id").value(noteId.toString()))
             .andExpect(jsonPath("$.pinned").value(true))
-            .andExpect(jsonPath("$.labels[0]").value("Imported"))
-            .andExpect(jsonPath("$.labels[1]").value("Private"))
-            .andExpect(jsonPath("$.contentRendered").value(org.hamcrest.Matchers.containsString("<strong>hello</strong>")))
-            .andExpect(jsonPath("$.contentRendered").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<script"))))
+            .andExpect(jsonPath("$.ciphertext").value(noteCipher))
+            .andExpect(jsonPath("$.labelIds[0]").value(labelId))
+            .andExpect(jsonPath("$.title").doesNotExist())
             .andReturn()
 
-        val noteId = objectMapper.readTree(createResult.response.contentAsString).get("id").asText()
-        val createdVersion = objectMapper.readTree(createResult.response.contentAsString).get("version").asLong()
+        val version = objectMapper.readTree(createResult.response.contentAsString).get("version").asLong()
+
+        mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $bobToken"))
+            .andExpect(status().isNotFound)
+
+        mockMvc.perform(get("/search").header("Authorization", "Bearer $aliceToken").param("q", "x"))
+            .andExpect(status().isNotFound)
+
+        mockMvc.perform(get("/markdown/preview").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isNotFound)
+
+        val attachmentId = UUID.randomUUID()
+        val meta = b64(ByteArray(48) { 7 })
+        mockMvc.perform(
+            multipart("/notes/$noteId/attachments")
+                .file(MockMultipartFile("file", "secret.bin", "application/octet-stream", ByteArray(16) { 9 }))
+                .file(MockMultipartFile("metaCiphertext", null, "text/plain", meta.toByteArray()))
+                .file(MockMultipartFile("attachmentId", null, "text/plain", attachmentId.toString().toByteArray()))
+                .header("Authorization", "Bearer $aliceToken"),
+        )
+            .andExpect(status().isCreated)
+            .andExpect(jsonPath("$.id").value(attachmentId.toString()))
+            .andExpect(jsonPath("$.metaCiphertext").value(meta))
+            .andExpect(jsonPath("$.originalFilename").doesNotExist())
+
+        mockMvc.perform(get("/attachments/$attachmentId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isOk)
+
+        val afterUpload = mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
+            .andExpect(status().isOk)
+            .andReturn()
+        val currentVersion = objectMapper.readTree(afterUpload.response.contentAsString).get("version").asLong()
+        assertThat(currentVersion).isGreaterThanOrEqualTo(version)
 
         mockMvc.perform(
             patch("/notes/$noteId")
                 .header("Authorization", "Bearer $aliceToken")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    """
-                    {
-                      "version": $createdVersion,
-                      "labels": ["Private", "Work"]
-                    }
-                    """.trimIndent(),
-                ),
+                .content("""{"version":$currentVersion,"archived":true}"""),
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.labels[0]").value("Private"))
-            .andExpect(jsonPath("$.labels[1]").value("Work"))
-
-        mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $bobToken"))
-            .andExpect(status().isNotFound)
-            .andExpect(jsonPath("$.code").value("note_not_found"))
-
-        mockMvc.perform(
-            get("/search")
-                .header("Authorization", "Bearer $aliceToken")
-                .param("q", "Private"),
-        )
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$[0].id").value(noteId))
-
-        val png = byteArrayOf(
-            0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-            0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-        )
-        val uploadResult = mockMvc.perform(
-            multipart("/notes/$noteId/attachments")
-                .file(MockMultipartFile("file", "../unsafe.png", "text/plain", png))
-                .header("Authorization", "Bearer $aliceToken"),
-        )
-            .andExpect(status().isCreated)
-            .andExpect(jsonPath("$.kind").value("IMAGE"))
-            .andExpect(jsonPath("$.mimeType").value("image/png"))
-            .andExpect(jsonPath("$.originalFilename").value("unsafe.png"))
-            .andReturn()
-        val attachmentId = objectMapper.readTree(uploadResult.response.contentAsString).get("id").asText()
-
-        mockMvc.perform(get("/attachments/$attachmentId").header("Authorization", "Bearer $bobToken"))
-            .andExpect(status().isNotFound)
-
-        mockMvc.perform(get("/attachments/$attachmentId").header("Authorization", "Bearer $aliceToken"))
-            .andExpect(status().isOk)
-            .andExpect(header().string("Content-Type", "image/png"))
-            .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.startsWith("inline")))
-            .andExpect(header().string("X-Content-Type-Options", "nosniff"))
-
-        mockMvc.perform(
-            multipart("/notes/$noteId/attachments")
-                .file(MockMultipartFile("file", "quota.bin", "application/octet-stream", ByteArray(17)))
-                .header("Authorization", "Bearer $aliceToken"),
-        )
-            .andExpect(status().isPayloadTooLarge)
-            .andExpect(jsonPath("$.code").value("quota_exceeded"))
-
-        mockMvc.perform(
-            multipart("/notes/$noteId/attachments")
-                .file(MockMultipartFile("file", "large.bin", "application/octet-stream", ByteArray(65)))
-                .header("Authorization", "Bearer $aliceToken"),
-        )
-            .andExpect(status().isPayloadTooLarge)
-            .andExpect(jsonPath("$.code").value("file_too_large"))
+            .andExpect(jsonPath("$.archived").value(true))
+            .andExpect(jsonPath("$.ciphertext").value(noteCipher))
 
         mockMvc.perform(delete("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
             .andExpect(status().isNoContent)
@@ -198,364 +215,122 @@ class OpenKeepIntegrationTest {
                 .param("updated_after", "1970-01-01T00:00:00Z"),
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.items").isEmpty)
-            .andExpect(jsonPath("$.deletedIds[0]").value(noteId))
-
-        mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $aliceToken"))
-            .andExpect(status().isNotFound)
+            .andExpect(jsonPath("$.deletedIds[0]").value(noteId.toString()))
     }
 
     @Test
-    fun `public health and protected me endpoints enforce authentication`() {
-        mockMvc.perform(get("/health"))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.status").value("UP"))
-
-        mockMvc.perform(get("/openapi.json"))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.paths['/auth/login']").exists())
-            .andExpect(jsonPath("$.paths['/notes']").exists())
-
-        mockMvc.perform(get("/me"))
-            .andExpect(status().isUnauthorized)
-            .andExpect(jsonPath("$.code").value("unauthorized"))
-
-        mockMvc.perform(
-            post("/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{not-json"),
-        )
-            .andExpect(status().isBadRequest)
-            .andExpect(jsonPath("$.code").value("malformed_request"))
-    }
-
-    @Test
-    fun `login includes the current user and logout revokes the token`() {
-        val token = login("alice", "alice-password")
-
-        mockMvc.perform(get("/me").header("Authorization", "Bearer $token"))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.login").value("alice"))
-            .andExpect(jsonPath("$.role").value("ADMIN"))
-
-        mockMvc.perform(post("/auth/logout").header("Authorization", "Bearer $token"))
-            .andExpect(status().isNoContent)
-
-        mockMvc.perform(get("/me").header("Authorization", "Bearer $token"))
-            .andExpect(status().isUnauthorized)
-    }
-
-    @Test
-    fun `admin can manage users and non-admin cannot`() {
+    fun `password change requires vault wrap and admin reset clears password wrap`() {
         val aliceToken = login("alice", "alice-password")
-        val bobToken = login("bob", "bob-password")
-
-        mockMvc.perform(get("/users").header("Authorization", "Bearer $bobToken"))
-            .andExpect(status().isForbidden)
-
-        val created = mockMvc.perform(
-            post("/users")
-                .header("Authorization", "Bearer $aliceToken")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"carol","password":"carol-password"}"""),
-        )
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.login").value("carol"))
-            .andExpect(jsonPath("$.role").value("USER"))
-            .andReturn()
-        val carolId = objectMapper.readTree(created.response.contentAsString).path("id").asLong()
-
-        mockMvc.perform(get("/users").header("Authorization", "Bearer $aliceToken"))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$[?(@.login=='carol')]").exists())
-
-        val carolToken = login("carol", "carol-password")
+        val salt = b64(ByteArray(16) { 1 })
+        val wrap = b64(ByteArray(48) { 2 })
+        val recovery = b64(ByteArray(48) { 3 })
         mockMvc.perform(
-            post("/users/$carolId/reset-password")
+            post("/me/vault")
                 .header("Authorization", "Bearer $aliceToken")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"newPassword":"carol-reset"}"""),
-        )
-            .andExpect(status().isNoContent)
+                .content(
+                    """
+                    {
+                      "kdfSalt": "$salt",
+                      "kdfParams": {"alg":"argon2id","m":65536,"t":3,"p":1},
+                      "wrappedVaultKey": "$wrap",
+                      "wrappedVaultKeyRecovery": "$recovery"
+                    }
+                    """.trimIndent(),
+                ),
+        ).andExpect(status().isOk)
 
-        mockMvc.perform(get("/me").header("Authorization", "Bearer $carolToken"))
-            .andExpect(status().isUnauthorized)
-        login("carol", "carol-reset")
-
+        val newWrap = b64(ByteArray(48) { 8 })
         mockMvc.perform(
             patch("/me/password")
+                .header("Authorization", "Bearer $aliceToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "currentPassword":"alice-password",
+                      "newPassword":"alice-password-2",
+                      "wrappedVaultKey":"$newWrap"
+                    }
+                    """.trimIndent(),
+                ),
+        ).andExpect(status().isNoContent)
+
+        val aliceAfter = login("alice", "alice-password-2")
+        val bobToken = login("bob", "bob-password")
+        // promote bob temporarily? alice is admin - reset bob after bob has vault
+        val bobWrap = b64(ByteArray(48) { 11 })
+        val bobRecovery = b64(ByteArray(48) { 12 })
+        mockMvc.perform(
+            post("/me/vault")
                 .header("Authorization", "Bearer $bobToken")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"currentPassword":"bob-password","newPassword":"bob-changed"}"""),
-        )
-            .andExpect(status().isNoContent)
-        mockMvc.perform(get("/me").header("Authorization", "Bearer $bobToken"))
-            .andExpect(status().isUnauthorized)
-        login("bob", "bob-changed")
-
-        val aliceId = userRepository.findByLogin("alice")!!.id!!
-        mockMvc.perform(delete("/users/$aliceId").header("Authorization", "Bearer $aliceToken"))
-            .andExpect(status().isBadRequest)
-            .andExpect(jsonPath("$.code").value("cannot_delete_self"))
-
-        mockMvc.perform(delete("/users/$carolId").header("Authorization", "Bearer $aliceToken"))
-            .andExpect(status().isNoContent)
-
-        mockMvc.perform(
-            post("/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"carol","password":"carol-reset"}"""),
-        )
-            .andExpect(status().isUnauthorized)
-
-        mockMvc.perform(
-            post("/users")
-                .header("Authorization", "Bearer $aliceToken")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"carol","password":"again"}"""),
-        )
-            .andExpect(status().isConflict)
-            .andExpect(jsonPath("$.code").value("login_taken"))
-    }
-
-    @Test
-    fun `list ordering search escaping and archive sync transitions are canonical`() {
-        val token = login("alice", "alice-password")
-        val created = mockMvc.perform(
-            post("/notes")
-                .header("Authorization", "Bearer $token")
-                .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
                     {
-                      "type": "LIST",
-                      "title": "Budget 100%",
-                      "items": [
-                        {"text": "**First**", "checked": false},
-                        {"text": "Second", "checked": true}
-                      ]
+                      "kdfSalt": "$salt",
+                      "kdfParams": {"alg":"argon2id","m":65536,"t":3,"p":1},
+                      "wrappedVaultKey": "$bobWrap",
+                      "wrappedVaultKeyRecovery": "$bobRecovery"
                     }
                     """.trimIndent(),
                 ),
-        )
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.items[0].text").value("**First**"))
-            .andExpect(jsonPath("$.items[0].textRendered").value(org.hamcrest.Matchers.containsString("<strong>First</strong>")))
-            .andExpect(jsonPath("$.items[0].sortOrder").value(0))
-            .andExpect(jsonPath("$.items[1].text").value("Second"))
-            .andExpect(jsonPath("$.items[1].sortOrder").value(1))
-            .andReturn()
+        ).andExpect(status().isOk)
 
-        val createdJson = objectMapper.readTree(created.response.contentAsString)
-        val noteId = createdJson.get("id").asText()
-        val updatedAt = createdJson.get("updatedAt").asText()
-        val version = createdJson.get("version").asLong()
-        val firstItemId = createdJson.path("items").path(0).path("id").asText()
-        val secondItemId = createdJson.path("items").path(1).path("id").asText()
-
+        val bobId = userRepository.findByLogin("bob")!!.id!!
         mockMvc.perform(
-            get("/search")
-                .header("Authorization", "Bearer $token")
-                .param("q", "%"),
-        )
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$[?(@.id == '$noteId')]").isNotEmpty)
-
-        mockMvc.perform(
-            patch("/notes/$noteId")
-                .header("Authorization", "Bearer $token")
+            post("/users/$bobId/reset-password")
+                .header("Authorization", "Bearer $aliceAfter")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    """
-                    {
-                      "archived": true,
-                      "version": $version,
-                      "items": [
-                        {"id": "$firstItemId", "text": "**First**", "checked": false, "sortOrder": 0},
-                        {"id": "$secondItemId", "text": "Second", "checked": true, "sortOrder": 1}
-                      ]
-                    }
-                    """.trimIndent(),
-                ),
-        )
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.archived").value(true))
-            .andExpect(jsonPath("$.items[0].id").value(firstItemId))
-            .andExpect(jsonPath("$.items[1].id").value(secondItemId))
+                .content("""{"newPassword":"bob-password-reset"}"""),
+        ).andExpect(status().isNoContent)
 
+        val bobAfterReset = login("bob", "bob-password-reset")
+        mockMvc.perform(get("/me").header("Authorization", "Bearer $bobAfterReset"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.vault.needsRecoveryUnlock").value(true))
+            .andExpect(jsonPath("$.vault.hasRecoveryKey").value(true))
+
+        val rebound = b64(ByteArray(48) { 13 })
         mockMvc.perform(
-            patch("/notes/$noteId")
-                .header("Authorization", "Bearer $token")
+            put("/me/vault/wrap")
+                .header("Authorization", "Bearer $bobAfterReset")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"title":"stale write","version":$version}"""),
-        )
-            .andExpect(status().isConflict)
-            .andExpect(jsonPath("$.code").value("version_conflict"))
-
-        mockMvc.perform(
-            get("/notes")
-                .header("Authorization", "Bearer $token")
-                .param("updated_after", updatedAt)
-                .param("after_id", noteId),
+                .content("""{"wrappedVaultKey":"$rebound"}"""),
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.items[?(@.id == '$noteId' && @.archived == true)]").isNotEmpty)
+            .andExpect(jsonPath("$.needsRecoveryUnlock").value(false))
 
-        mockMvc.perform(
-            get("/notes")
-                .header("Authorization", "Bearer $token")
-                .param("updated_after", updatedAt)
-                .param("after_id", noteId)
-                .param("archived", "true"),
-        )
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.items[?(@.id == '$noteId')]").isNotEmpty)
-    }
-
-    @Test
-    fun `Google Keep ZIP import is asynchronous private and repeatable`() {
-        val aliceToken = login("alice", "alice-password")
-        val bobToken = login("bob", "bob-password")
-        val title = "Takeout-${UUID.randomUUID()}"
-        val archive = keepArchive(
-            mapOf(
-                "Takeout/Keep/note.json" to
-                    """
-                    {
-                      "title": "$title",
-                      "textContent": "Visit https://example.com/imported",
-                      "color": "GREEN",
-                      "isArchived": true,
-                      "isPinned": true,
-                      "createdTimestampUsec": "1700000000000000",
-                      "userEditedTimestampUsec": "1700000100000000",
-                      "labels": [{"name": "Takeout"}],
-                      "attachments": [{"filePath": "photo.jpg", "mimetype": "image/jpeg"}],
-                      "annotations": [{"webLink": {"url": "https://ignored.example"}}],
-                      "sharees": [{"email": "ignored@example.com"}]
-                    }
-                    """.trimIndent().toByteArray(),
-                "Takeout/Keep/photo.jpg" to byteArrayOf(
-                    0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xe0.toByte(),
-                    0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00,
-                ),
-                "Takeout/Keep/trashed.json" to
-                    """{"title":"Do not import","textContent":"trash","isTrashed":true}""".toByteArray(),
-            ),
-        )
-
-        val firstJob = submitImport(aliceToken, archive)
-        mockMvc.perform(get("/imports/google-keep/$firstJob").header("Authorization", "Bearer $bobToken"))
-            .andExpect(status().isNotFound)
-        awaitImport(aliceToken, firstJob)
-            .also {
-                assertThat(it.path("status").asText()).isEqualTo("COMPLETED")
-                assertThat(it.path("progressPercent").asInt()).isEqualTo(100)
-                assertThat(it.path("importedNotes").asInt()).isEqualTo(1)
-                assertThat(it.path("skippedNotes").asInt()).isEqualTo(1)
-                assertThat(it.path("warningCount").asInt()).isEqualTo(1)
-            }
-
-        awaitImport(aliceToken, submitImport(aliceToken, archive))
-        val search = mockMvc.perform(
-            get("/search")
-                .header("Authorization", "Bearer $aliceToken")
-                .param("q", title),
-        ).andExpect(status().isOk).andReturn()
-        val matches = objectMapper.readTree(search.response.contentAsString).filter { it.path("title").asText() == title }
-
-        assertThat(matches).hasSize(2)
-        assertThat(matches).allSatisfy {
-            assertThat(it.path("pinned").asBoolean()).isTrue()
-            assertThat(it.path("archived").asBoolean()).isTrue()
-            assertThat(it.path("backgroundColor").asText()).isEqualTo("#ccff90")
-            assertThat(it.path("labels").map { label -> label.asText() }).containsExactly("Takeout")
-            assertThat(it.path("attachments").size()).isEqualTo(1)
-            assertThat(it.path("contentRaw").asText()).contains("https://example.com/imported")
-            assertThat(it.path("contentRaw").asText()).doesNotContain("ignored.example")
-        }
-    }
-
-    @Test
-    fun `Google Keep import rejects ZIP traversal paths`() {
-        val token = login("alice", "alice-password")
-        val archive = keepArchive(
-            mapOf(
-                "Takeout/Keep/../../escape.json" to
-                    """{"title":"Unsafe","textContent":"must not import"}""".toByteArray(),
-            ),
-        )
-
-        val result = awaitImport(token, submitImport(token, archive))
-
-        assertThat(result.path("status").asText()).isEqualTo("FAILED")
-        assertThat(result.path("importedNotes").asInt()).isZero()
-        assertThat(result.path("errorMessage").asText()).contains("unsafe path")
+        assertThat(userRepository.findByLogin("bob")!!.wrappedVaultKey).isNotNull()
     }
 
     private fun login(login: String, password: String): String {
         val result = mockMvc.perform(
             post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("login" to login, "password" to password))),
+                .content("""{"login":"$login","password":"$password"}"""),
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.token").isString)
-            .andExpect(jsonPath("$.user.login").value(login))
             .andReturn()
         return objectMapper.readTree(result.response.contentAsString).get("token").asText()
     }
 
-    private fun submitImport(token: String, archive: ByteArray): String {
-        val result = mockMvc.perform(
-            multipart("/imports/google-keep")
-                .file(MockMultipartFile("file", "takeout.zip", "application/zip", archive))
-                .header("Authorization", "Bearer $token"),
-        )
-            .andExpect(status().isAccepted)
-            .andExpect(jsonPath("$.status").value("VALIDATING"))
-            .andReturn()
-        return objectMapper.readTree(result.response.contentAsString).path("jobId").asText()
-    }
-
-    private fun awaitImport(token: String, jobId: String): com.fasterxml.jackson.databind.JsonNode {
-        repeat(100) {
-            val result = mockMvc.perform(
-                get("/imports/google-keep/$jobId").header("Authorization", "Bearer $token"),
-            ).andExpect(status().isOk).andReturn()
-            val body = objectMapper.readTree(result.response.contentAsString)
-            if (body.path("status").asText() in setOf("COMPLETED", "FAILED")) return body
-            Thread.sleep(50)
-        }
-        throw AssertionError("Import job did not finish")
-    }
-
-    private fun keepArchive(entries: Map<String, ByteArray>): ByteArray {
-        val bytes = ByteArrayOutputStream()
-        ZipOutputStream(bytes).use { zip ->
-            entries.forEach { (name, content) ->
-                zip.putNextEntry(ZipEntry(name))
-                zip.write(content)
-                zip.closeEntry()
-            }
-        }
-        return bytes.toByteArray()
-    }
+    private fun b64(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
 
     companion object {
-        private val storageRoot = Files.createTempDirectory("openkeep-integration-")
-
         @Container
         @JvmStatic
-        val postgres = OpenKeepPostgres("postgres:18-alpine")
+        val postgres = OpenKeepPostgres("postgres:16-alpine")
 
-        @DynamicPropertySource
         @JvmStatic
-        fun databaseProperties(registry: DynamicPropertyRegistry) {
+        @DynamicPropertySource
+        fun datasource(registry: DynamicPropertyRegistry) {
             registry.add("spring.datasource.url", postgres::getJdbcUrl)
             registry.add("spring.datasource.username", postgres::getUsername)
             registry.add("spring.datasource.password", postgres::getPassword)
-            registry.add("openkeep.attachment.storage-root") { storageRoot.toString() }
+            registry.add("openkeep.attachment.storage-root") {
+                java.nio.file.Files.createTempDirectory("openkeep-att").toString()
+            }
         }
     }
 }

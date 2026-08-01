@@ -37,6 +37,7 @@ export function noteToWrite(note: Note): NoteWrite {
     archived: note.archived,
     pinned: note.pinned,
     labels: note.labels,
+    labelIds: note.labelIds,
     items: note.items.map((item, index) => ({
       id: item.id,
       text: item.text,
@@ -125,6 +126,7 @@ export function optimisticNote(
     archived,
     pinned: false,
     labels: [],
+    labelIds: [],
     createdAt: now,
     updatedAt: now,
     version: 0,

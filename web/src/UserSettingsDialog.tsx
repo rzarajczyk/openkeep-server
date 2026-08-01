@@ -2,6 +2,7 @@ import { KeyRound, LoaderCircle, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { api } from './api'
 import { errorMessage } from './utils'
+import { useVault } from './vault/VaultContext'
 
 interface UserSettingsDialogProps {
   onClose: () => void
@@ -10,6 +11,7 @@ interface UserSettingsDialogProps {
 
 export function UserSettingsDialog({ onClose, onPasswordChanged }: UserSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const { rewrapForNewPassword } = useVault()
   const currentId = useId()
   const nextId = useId()
   const confirmId = useId()
@@ -38,7 +40,9 @@ export function UserSettingsDialog({ onClose, onPasswordChanged }: UserSettingsD
     }
     setSubmitting(true)
     try {
-      await api.changePassword(currentPassword, newPassword)
+      const me = await api.me()
+      const wrappedVaultKey = await rewrapForNewPassword(newPassword, me.vault)
+      await api.changePassword(currentPassword, newPassword, wrappedVaultKey)
       onPasswordChanged()
     } catch (reason) {
       setError(errorMessage(reason))

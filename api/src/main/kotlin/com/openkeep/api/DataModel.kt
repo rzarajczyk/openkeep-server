@@ -13,8 +13,6 @@ import java.time.Instant
 import java.util.UUID
 
 enum class NoteType { TEXT, LIST }
-enum class AttachmentKind { IMAGE, FILE }
-enum class ImportJobStatus { VALIDATING, RUNNING, COMPLETED, FAILED }
 enum class UserRole { ADMIN, USER }
 
 @Entity
@@ -32,11 +30,27 @@ class UserEntity(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var role: UserRole = UserRole.USER,
+    @Column(name = "kdf_salt", columnDefinition = "bytea")
+    var kdfSalt: ByteArray? = null,
+    @Column(name = "kdf_params", columnDefinition = "text")
+    var kdfParams: String? = null,
+    @Column(name = "wrapped_vault_key", columnDefinition = "bytea")
+    var wrappedVaultKey: ByteArray? = null,
+    @Column(name = "wrapped_vault_key_recovery", columnDefinition = "bytea")
+    var wrappedVaultKeyRecovery: ByteArray? = null,
+    @Column(name = "vault_initialized_at")
+    var vaultInitializedAt: Instant? = null,
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Instant = Instant.now(),
-)
+) {
+    /** True once a vault has been set up (recovery wrap present). Password wrap may be cleared by admin reset. */
+    val vaultInitialized: Boolean
+        get() = vaultInitializedAt != null &&
+            kdfSalt != null &&
+            wrappedVaultKeyRecovery != null
+}
 
 @Entity
 @Table(name = "auth_tokens")
@@ -65,18 +79,16 @@ class NoteEntity(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     var type: NoteType = NoteType.TEXT,
-    @Column(nullable = false, length = 500)
-    var title: String = "",
-    @Column(name = "content_raw", nullable = false, columnDefinition = "text")
-    var contentRaw: String = "",
-    @Column(name = "content_rendered", nullable = false, columnDefinition = "text")
-    var contentRendered: String = "",
     @Column(name = "background_color", nullable = false, length = 32)
     var backgroundColor: String = "default",
     @Column(name = "is_archived", nullable = false)
     var archived: Boolean = false,
     @Column(name = "is_pinned", nullable = false)
     var pinned: Boolean = false,
+    @Column(name = "wrapped_note_key", nullable = false, columnDefinition = "bytea")
+    var wrappedNoteKey: ByteArray = ByteArray(0),
+    @Column(nullable = false, columnDefinition = "bytea")
+    var ciphertext: ByteArray = ByteArray(0),
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false)
@@ -95,8 +107,8 @@ class LabelEntity(
     var id: UUID = UUID.randomUUID(),
     @Column(name = "user_id", nullable = false)
     var userId: Long = 0,
-    @Column(nullable = false, length = 500)
-    var name: String = "",
+    @Column(nullable = false, columnDefinition = "bytea")
+    var ciphertext: ByteArray = ByteArray(0),
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
 )
@@ -113,72 +125,18 @@ class NoteLabelEntity(
 )
 
 @Entity
-@Table(name = "note_items")
-class NoteItemEntity(
-    @Id
-    var id: UUID = UUID.randomUUID(),
-    @Column(name = "note_id", nullable = false)
-    var noteId: UUID = UUID.randomUUID(),
-    @Column(nullable = false, columnDefinition = "text")
-    var text: String = "",
-    @Column(nullable = false)
-    var checked: Boolean = false,
-    @Column(name = "sort_order", nullable = false)
-    var sortOrder: Int = 0,
-    @Column(nullable = false)
-    var indent: Int = 0,
-)
-
-@Entity
 @Table(name = "attachments")
 class AttachmentEntity(
     @Id
     var id: UUID = UUID.randomUUID(),
     @Column(name = "note_id", nullable = false)
     var noteId: UUID = UUID.randomUUID(),
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    var kind: AttachmentKind = AttachmentKind.FILE,
-    @Column(name = "original_filename", nullable = false)
-    var originalFilename: String = "",
     @Column(name = "storage_path", nullable = false, unique = true)
     var storagePath: String = "",
-    @Column(name = "mime_type", nullable = false)
-    var mimeType: String = "application/octet-stream",
+    @Column(name = "meta_ciphertext", nullable = false, columnDefinition = "bytea")
+    var metaCiphertext: ByteArray = ByteArray(0),
     @Column(name = "size_bytes", nullable = false)
     var sizeBytes: Long = 0,
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.now(),
-)
-
-@Entity
-@Table(name = "import_jobs")
-class ImportJobEntity(
-    @Id
-    var id: UUID = UUID.randomUUID(),
-    @Column(name = "user_id", nullable = false)
-    var userId: Long = 0,
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    var status: ImportJobStatus = ImportJobStatus.VALIDATING,
-    @Column(name = "total_notes", nullable = false)
-    var totalNotes: Int = 0,
-    @Column(name = "processed_notes", nullable = false)
-    var processedNotes: Int = 0,
-    @Column(name = "imported_notes", nullable = false)
-    var importedNotes: Int = 0,
-    @Column(name = "skipped_notes", nullable = false)
-    var skippedNotes: Int = 0,
-    @Column(name = "warning_count", nullable = false)
-    var warningCount: Int = 0,
-    @Column(name = "warnings_json", nullable = false, columnDefinition = "text")
-    var warningsJson: String = "[]",
-    @Column(name = "error_message", columnDefinition = "text")
-    var errorMessage: String? = null,
-    @Column(name = "created_at", nullable = false)
-    var createdAt: Instant = Instant.now(),
-    @Column(name = "started_at")
-    var startedAt: Instant? = null,
-    @Column(name = "completed_at")
-    var completedAt: Instant? = null,
 )

@@ -1,24 +1,13 @@
 package com.openkeep.api
 
 import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
-import org.commonmark.ext.autolink.AutolinkExtension
-import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
-import org.commonmark.node.Image
-import org.commonmark.parser.Parser
-import org.commonmark.renderer.html.AttributeProvider
-import org.commonmark.renderer.html.AttributeProviderContext
-import org.commonmark.renderer.html.AttributeProviderFactory
-import org.commonmark.renderer.html.HtmlRenderer
-import org.owasp.html.HtmlPolicyBuilder
-import org.owasp.html.PolicyFactory
-import org.owasp.html.Sanitizers
 import org.springframework.data.domain.PageRequest
 import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
-import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -31,70 +20,40 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.time.Instant
-import java.util.Locale
 import java.util.UUID
 
-data class NoteItemRequest(
-    val id: UUID? = null,
-    @field:Size(max = 10_000)
-    val text: String,
-    val checked: Boolean = false,
-    val sortOrder: Int? = null,
-    val indent: Int? = null,
-)
-
 data class CreateNoteRequest(
+    /** Client-generated id so ciphertext AAD can bind to the note id before upload. */
+    val id: UUID? = null,
     val type: NoteType,
-    @field:Size(max = 500)
-    val title: String = "",
-    @field:Size(max = 1_000_000)
-    val contentRaw: String = "",
     @field:Size(max = 32)
     val backgroundColor: String = "default",
     val archived: Boolean = false,
     val pinned: Boolean = false,
+    @field:NotBlank
+    val wrappedNoteKey: String,
+    @field:NotBlank
+    val ciphertext: String,
     @field:Size(max = 100)
-    val labels: List<String> = emptyList(),
-    @field:Size(max = 1000)
-    val items: List<@Valid NoteItemRequest> = emptyList(),
+    val labelIds: List<UUID> = emptyList(),
 )
 
 data class UpdateNoteRequest(
     val type: NoteType? = null,
-    @field:Size(max = 500)
-    val title: String? = null,
-    @field:Size(max = 1_000_000)
-    val contentRaw: String? = null,
     @field:Size(max = 32)
     val backgroundColor: String? = null,
     val archived: Boolean? = null,
     val pinned: Boolean? = null,
+    val wrappedNoteKey: String? = null,
+    val ciphertext: String? = null,
     @field:Size(max = 100)
-    val labels: List<String>? = null,
-    @field:Size(max = 1000)
-    val items: List<@Valid NoteItemRequest>? = null,
+    val labelIds: List<UUID>? = null,
     val version: Long? = null,
 )
 
-data class NoteItemResponse(
-    val id: UUID,
-    val text: String,
-    val textRendered: String,
-    val checked: Boolean,
-    val sortOrder: Int,
-    val indent: Int,
-)
-
-data class MarkdownAttachmentRef(
-    val id: UUID,
-    val originalFilename: String,
-    val kind: AttachmentKind,
-)
 data class AttachmentResponse(
     val id: UUID,
-    val kind: AttachmentKind,
-    val originalFilename: String,
-    val mimeType: String,
+    val metaCiphertext: String,
     val sizeBytes: Long,
     val createdAt: Instant,
     val url: String,
@@ -103,14 +62,12 @@ data class AttachmentResponse(
 data class NoteResponse(
     val id: UUID,
     val type: NoteType,
-    val title: String,
-    val contentRaw: String,
-    val contentRendered: String,
     val backgroundColor: String,
     val archived: Boolean,
     val pinned: Boolean,
-    val labels: List<String>,
-    val items: List<NoteItemResponse>,
+    val wrappedNoteKey: String,
+    val ciphertext: String,
+    val labelIds: List<UUID>,
     val attachments: List<AttachmentResponse>,
     val createdAt: Instant,
     val updatedAt: Instant,
@@ -125,145 +82,40 @@ data class NotesSyncResponse(
     val hasMore: Boolean,
 )
 
-@Component
-class MarkdownService {
-    private val extensions = listOf(
-        AutolinkExtension.create(),
-        StrikethroughExtension.create(),
-    )
-    private val parser = Parser.builder().extensions(extensions).build()
-    private val blockPolicy: PolicyFactory = Sanitizers.FORMATTING
-        .and(Sanitizers.BLOCKS)
-        .and(Sanitizers.LINKS)
-        .and(Sanitizers.IMAGES)
-        .and(
-            HtmlPolicyBuilder()
-                .allowElements("pre", "hr")
-                .allowAttributes("class").matching(true, "language-[a-zA-Z0-9_-]+").onElements("code")
-                .toFactory(),
-        )
-    private val inlinePolicy: PolicyFactory = Sanitizers.FORMATTING
-        .and(Sanitizers.LINKS)
-
-    fun render(
-        markdown: String,
-        attachments: List<MarkdownAttachmentRef> = emptyList(),
-    ): String {
-        val html = renderHtml(markdown, attachments)
-        return blockPolicy.sanitize(html)
-    }
-
-    fun renderInline(markdown: String): String {
-        val html = renderHtml(markdown, emptyList())
-        return unwrapSingleParagraph(inlinePolicy.sanitize(html))
-    }
-
-    private fun renderHtml(
-        markdown: String,
-        attachments: List<MarkdownAttachmentRef>,
-    ): String {
-        val renderer = HtmlRenderer.builder()
-            .extensions(extensions)
-            .escapeHtml(false)
-            .attributeProviderFactory(attachmentImageProvider(attachments))
-            .build()
-        return renderer.render(parser.parse(markdown))
-    }
-
-    private fun attachmentImageProvider(
-        attachments: List<MarkdownAttachmentRef>,
-    ): AttributeProviderFactory {
-        val byName = LinkedHashMap<String, MarkdownAttachmentRef>()
-        attachments
-            .sortedWith(
-                compareBy<MarkdownAttachmentRef> { if (it.kind == AttachmentKind.IMAGE) 0 else 1 }
-                    .thenBy { it.originalFilename.lowercase(Locale.ROOT) },
-            )
-            .forEach { attachment ->
-                byName.putIfAbsent(attachment.originalFilename.lowercase(Locale.ROOT), attachment)
-            }
-        return AttributeProviderFactory { _: AttributeProviderContext ->
-            AttributeProvider { node, tagName, attributes ->
-                if (node is Image && tagName == "img") {
-                    attributes["src"] = resolveImageDestination(node.destination, byName)
-                }
-            }
-        }
-    }
-
-    private fun resolveImageDestination(
-        destination: String,
-        byName: Map<String, MarkdownAttachmentRef>,
-    ): String {
-        val trimmed = destination.trim()
-        if (trimmed.isEmpty()) return trimmed
-        val lower = trimmed.lowercase(Locale.ROOT)
-        if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("/attachments/")) {
-            return trimmed
-        }
-        val filename = trimmed
-            .replace('\\', '/')
-            .substringAfterLast('/')
-            .trim()
-        if (filename.isEmpty()) return trimmed
-        val match = byName[filename.lowercase(Locale.ROOT)] ?: return trimmed
-        return "/attachments/${match.id}"
-    }
-
-    private fun unwrapSingleParagraph(html: String): String {
-        val trimmed = html.trim()
-        val match = SINGLE_PARAGRAPH.matchEntire(trimmed) ?: return trimmed
-        return match.groupValues[1]
-    }
-
-    companion object {
-        private val SINGLE_PARAGRAPH = Regex(
-            """^<p>(.*)</p>$""",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-        )
-    }
-}
-
 @Service
 class NoteService(
     private val noteRepository: NoteRepository,
-    private val noteItemRepository: NoteItemRepository,
     private val labelRepository: LabelRepository,
     private val noteLabelRepository: NoteLabelRepository,
     private val attachmentRepository: AttachmentRepository,
-    private val markdownService: MarkdownService,
     private val attachmentStorage: AttachmentStorage,
     private val properties: OpenKeepProperties,
 ) {
-    companion object {
-        const val MAX_ITEM_INDENT = 5
-    }
-
     @Transactional
     fun create(userId: Long, request: CreateNoteRequest): NoteResponse {
-        validateState(request.type, request.contentRaw, request.items)
-        val labels = validateLabels(request.labels)
+        val wrappedKey = CryptoSupport.decodeRequired(request.wrappedNoteKey, "wrappedNoteKey", minBytes = 28, maxBytes = 512)
+        val ciphertext = CryptoSupport.decodeRequired(request.ciphertext, "ciphertext", minBytes = 28, maxBytes = 2_000_000)
+        val labelIds = validateLabelIds(userId, request.labelIds)
         val now = Instant.now()
+        val noteId = request.id ?: UUID.randomUUID()
+        if (request.id != null && noteRepository.existsById(noteId)) {
+            throw ApiException(HttpStatus.CONFLICT, "note_exists", "A note with this id already exists")
+        }
         val note = noteRepository.save(
             NoteEntity(
+                id = noteId,
                 userId = userId,
                 type = request.type,
-                title = request.title.trim(),
-                contentRaw = if (request.type == NoteType.TEXT) request.contentRaw else "",
-                contentRendered = if (request.type == NoteType.TEXT) {
-                    markdownService.render(request.contentRaw)
-                } else {
-                    ""
-                },
                 backgroundColor = validateColor(request.backgroundColor),
                 archived = request.archived,
                 pinned = request.pinned,
+                wrappedNoteKey = wrappedKey,
+                ciphertext = ciphertext,
                 createdAt = now,
                 updatedAt = now,
             ),
         )
-        replaceItems(note, request.items)
-        replaceLabels(note, labels)
+        replaceLabels(note, labelIds)
         return toResponse(note)
     }
 
@@ -276,40 +128,30 @@ class NoteService(
         if (request.version != null && request.version != note.version) {
             throw ApiException(HttpStatus.CONFLICT, "version_conflict", "The note has changed since it was loaded")
         }
-
-        val targetType = request.type ?: note.type
-        val targetContent = request.contentRaw ?: note.contentRaw
-        val currentItems = if (note.type == NoteType.LIST) {
-            noteItemRepository.findAllByNoteIdOrderBySortOrderAscIdAsc(note.id)
-                .map { NoteItemRequest(id = it.id, text = it.text, checked = it.checked, sortOrder = it.sortOrder, indent = it.indent) }
-        } else {
-            emptyList()
+        if ((request.ciphertext == null) != (request.wrappedNoteKey == null)) {
+            throw ApiException(
+                HttpStatus.BAD_REQUEST,
+                "invalid_note",
+                "ciphertext and wrappedNoteKey must be provided together",
+            )
         }
-        val targetItems = request.items ?: if (targetType == NoteType.LIST) currentItems else emptyList()
-        validateState(targetType, targetContent, targetItems)
 
-        note.type = targetType
-        request.title?.let { note.title = it.trim() }
-        note.contentRaw = if (targetType == NoteType.TEXT) targetContent else ""
-        note.contentRendered = if (targetType == NoteType.TEXT) {
-            val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(note.id)
-                .map(::toMarkdownAttachmentRef)
-            markdownService.render(targetContent, attachments)
-        } else {
-            ""
-        }
+        request.type?.let { note.type = it }
         request.backgroundColor?.let { note.backgroundColor = validateColor(it) }
         request.archived?.let { note.archived = it }
         request.pinned?.let { note.pinned = it }
+        request.ciphertext?.let {
+            note.ciphertext = CryptoSupport.decodeRequired(it, "ciphertext", minBytes = 28, maxBytes = 2_000_000)
+            note.wrappedNoteKey = CryptoSupport.decodeRequired(
+                requireNotNull(request.wrappedNoteKey),
+                "wrappedNoteKey",
+                minBytes = 28,
+                maxBytes = 512,
+            )
+        }
         note.updatedAt = Instant.now()
         noteRepository.save(note)
-
-        if (targetType == NoteType.TEXT) {
-            noteItemRepository.deleteAllByNoteId(note.id)
-        } else if (request.items != null || request.type != null) {
-            replaceItems(note, targetItems)
-        }
-        request.labels?.let { replaceLabels(note, validateLabels(it)) }
+        request.labelIds?.let { replaceLabels(note, validateLabelIds(userId, it)) }
         return toResponse(note)
     }
 
@@ -320,7 +162,7 @@ class NoteService(
         note.deletedAt = now
         note.updatedAt = now
         noteRepository.save(note)
-        noteItemRepository.deleteAllByNoteId(id)
+        noteLabelRepository.deleteAllByNoteId(id)
         val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(id)
         attachmentRepository.deleteAllByNoteId(id)
         attachmentStorage.deleteAfterCommit(attachments.map { it.storagePath })
@@ -352,99 +194,27 @@ class NoteService(
         )
     }
 
-    @Transactional(readOnly = true)
-    fun search(userId: Long, query: String, requestedLimit: Int): List<NoteResponse> {
-        val normalized = query.trim()
-        if (normalized.isEmpty()) return emptyList()
-        if (normalized.length > 500) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_query", "Search query exceeds 500 characters")
-        }
-        val escaped = normalized
-            .replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
-        val limit = requestedLimit.coerceIn(1, properties.maxSyncLimit.coerceAtLeast(1))
-        return noteRepository.search(userId, "%$escaped%", PageRequest.of(0, limit)).map(::toResponse)
-    }
-
     private fun findOwned(userId: Long, id: UUID): NoteEntity =
         noteRepository.findByIdAndUserIdAndDeletedAtIsNull(id, userId)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
 
-    private fun replaceItems(note: NoteEntity, items: List<NoteItemRequest>) {
-        noteItemRepository.deleteAllByNoteId(note.id)
-        if (note.type == NoteType.LIST && items.isNotEmpty()) {
-            val normalized = normalizeIndents(items)
-            noteItemRepository.saveAll(
-                normalized.mapIndexed { index, item ->
-                    NoteItemEntity(
-                        id = item.id ?: UUID.randomUUID(),
-                        noteId = note.id,
-                        text = item.text,
-                        checked = item.checked,
-                        sortOrder = index,
-                        indent = item.indent ?: 0,
-                    )
-                },
-            )
-        }
-    }
-
-    private fun normalizeIndents(items: List<NoteItemRequest>): List<NoteItemRequest> {
-        var previousIndent = 0
-        return items.mapIndexed { index, item ->
-            val requested = (item.indent ?: 0).coerceAtLeast(0).coerceAtMost(MAX_ITEM_INDENT)
-            val maxAllowed = if (index == 0) 0 else previousIndent + 1
-            val indent = requested.coerceAtMost(maxAllowed)
-            previousIndent = indent
-            item.copy(indent = indent)
-        }
-    }
-
-    private fun replaceLabels(note: NoteEntity, names: List<String>) {
+    private fun replaceLabels(note: NoteEntity, labelIds: List<UUID>) {
         noteLabelRepository.deleteAllByNoteId(note.id)
-        if (names.isEmpty()) return
-        val existing = labelRepository.findAllByUserIdAndNameIn(note.userId, names).associateBy { it.name }
-        val labels = names.map { name ->
-            existing[name] ?: labelRepository.save(LabelEntity(userId = note.userId, name = name))
-        }
-        noteLabelRepository.saveAll(labels.map { NoteLabelEntity(noteId = note.id, labelId = it.id) })
+        if (labelIds.isEmpty()) return
+        noteLabelRepository.saveAll(labelIds.map { NoteLabelEntity(noteId = note.id, labelId = it) })
     }
 
-    private fun validateLabels(values: List<String>): List<String> {
-        if (values.size > 100) {
+    private fun validateLabelIds(userId: Long, ids: List<UUID>): List<UUID> {
+        if (ids.size > 100) {
             throw ApiException(HttpStatus.BAD_REQUEST, "invalid_labels", "A note cannot have more than 100 labels")
         }
-        val labels = values.map { it.trim() }.distinct()
-        if (labels.any { it.isEmpty() || it.length > 500 || it.any(Char::isISOControl) }) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_labels", "Labels must be 1 to 500 printable characters")
+        val distinct = ids.distinct()
+        if (distinct.isEmpty()) return emptyList()
+        val found = labelRepository.findAllByUserIdAndIdIn(userId, distinct)
+        if (found.size != distinct.size) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_labels", "One or more labels were not found")
         }
-        return labels
-    }
-
-    private fun validateState(type: NoteType, contentRaw: String, items: List<NoteItemRequest>) {
-        when (type) {
-            NoteType.TEXT -> if (items.isNotEmpty()) {
-                throw ApiException(HttpStatus.BAD_REQUEST, "invalid_note", "Text notes cannot contain list items")
-            }
-            NoteType.LIST -> if (contentRaw.isNotBlank()) {
-                throw ApiException(HttpStatus.BAD_REQUEST, "invalid_note", "List notes cannot contain text content")
-            }
-        }
-        if (items.any { it.text.length > 10_000 }) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_note", "List item text exceeds 10000 characters")
-        }
-        if (items.any { (it.indent ?: 0) < 0 || (it.indent ?: 0) > MAX_ITEM_INDENT }) {
-            throw ApiException(
-                HttpStatus.BAD_REQUEST,
-                "invalid_note",
-                "List item indent must be between 0 and $MAX_ITEM_INDENT",
-            )
-        }
-        val itemIds = items.mapNotNull { it.id }
-        if (itemIds.size != itemIds.distinct().size) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "invalid_note", "List item IDs must be unique")
-        }
+        return distinct
     }
 
     private fun validateColor(value: String): String {
@@ -455,26 +225,10 @@ class NoteService(
     }
 
     private fun toResponse(note: NoteEntity): NoteResponse {
-        val items = if (note.type == NoteType.LIST) {
-            noteItemRepository.findAllByNoteIdOrderBySortOrderAscIdAsc(note.id).map {
-                NoteItemResponse(
-                    id = it.id,
-                    text = it.text,
-                    textRendered = markdownService.renderInline(it.text),
-                    checked = it.checked,
-                    sortOrder = it.sortOrder,
-                    indent = it.indent,
-                )
-            }
-        } else {
-            emptyList()
-        }
         val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(note.id).map {
             AttachmentResponse(
                 id = it.id,
-                kind = it.kind,
-                originalFilename = it.originalFilename,
-                mimeType = it.mimeType,
+                metaCiphertext = CryptoSupport.encode(it.metaCiphertext),
                 sizeBytes = it.sizeBytes,
                 createdAt = it.createdAt,
                 url = "/attachments/${it.id}",
@@ -483,14 +237,12 @@ class NoteService(
         return NoteResponse(
             id = note.id,
             type = note.type,
-            title = note.title,
-            contentRaw = note.contentRaw,
-            contentRendered = note.contentRendered,
             backgroundColor = note.backgroundColor,
             archived = note.archived,
             pinned = note.pinned,
-            labels = noteLabelRepository.findNamesByNoteId(note.id),
-            items = items,
+            wrappedNoteKey = CryptoSupport.encode(note.wrappedNoteKey),
+            ciphertext = CryptoSupport.encode(note.ciphertext),
+            labelIds = noteLabelRepository.findLabelIdsByNoteId(note.id),
             attachments = attachments,
             createdAt = note.createdAt,
             updatedAt = note.updatedAt,
@@ -498,12 +250,6 @@ class NoteService(
         )
     }
 }
-
-private fun toMarkdownAttachmentRef(entity: AttachmentEntity) = MarkdownAttachmentRef(
-    id = entity.id,
-    originalFilename = entity.originalFilename,
-    kind = entity.kind,
-)
 
 @RestController
 @RequestMapping("/notes")
@@ -546,43 +292,5 @@ class NoteController(private val noteService: NoteService) {
     }
 }
 
-@RestController
-class SearchController(private val noteService: NoteService) {
-    @GetMapping("/search")
-    fun search(
-        authentication: UsernamePasswordAuthenticationToken,
-        @RequestParam q: String,
-        @RequestParam(defaultValue = "100") limit: Int,
-    ) = noteService.search(principal(authentication).userId, q, limit)
-}
-
-data class MarkdownPreviewRequest(
-    @field:Size(max = 1_000_000)
-    val markdown: String = "",
-    @field:Size(max = 100)
-    val attachments: List<MarkdownAttachmentRef> = emptyList(),
-    /** When true, render the list-item inline subset (no block elements). */
-    val inline: Boolean = false,
-)
-
-data class MarkdownPreviewResponse(
-    val html: String,
-)
-
-@RestController
-@RequestMapping("/markdown")
-class MarkdownController(private val markdownService: MarkdownService) {
-    @PostMapping("/preview")
-    fun preview(
-        @Valid @RequestBody request: MarkdownPreviewRequest,
-    ) = MarkdownPreviewResponse(
-        html = if (request.inline) {
-            markdownService.renderInline(request.markdown)
-        } else {
-            markdownService.render(request.markdown, request.attachments)
-        },
-    )
-}
-
-private fun principal(authentication: UsernamePasswordAuthenticationToken) =
+fun principal(authentication: UsernamePasswordAuthenticationToken) =
     authentication.principal as OpenKeepPrincipal

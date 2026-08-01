@@ -108,6 +108,8 @@ class UserManagementService(
         }
         val now = clock.instant()
         user.passwordHash = passwordEncoder.encode(request.newPassword)
+        // Clear password wrap only; recovery wrap remains so the user can re-bind a password wrap.
+        user.wrappedVaultKey = null
         user.updatedAt = now
         userRepository.save(user)
         authTokenRepository.revokeAllForUser(requireNotNull(user.id), now)

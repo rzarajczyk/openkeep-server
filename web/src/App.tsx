@@ -5,6 +5,8 @@ import { api } from './api'
 import { AppShell } from './AppShell'
 import { Login } from './Login'
 import type { AuthSession, User } from './types'
+import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
+import { VaultSetup, VaultUnlock } from './vault/VaultGate'
 
 const TOKEN_KEY = 'openkeep.auth'
 
@@ -25,14 +27,71 @@ function readStoredSession(): AuthSession | null {
   }
 }
 
+function AuthenticatedApp({
+  session,
+  passwordHint,
+  onLogout,
+  onSessionEnded,
+  onUserUpdated,
+}: {
+  session: AuthSession
+  passwordHint: string | null
+  onLogout: () => Promise<void>
+  onSessionEnded: () => void
+  onUserUpdated: (user: User) => void
+}) {
+  const { isUnlocked, lock } = useVault()
+
+  if (vaultNeedsSetup(session.user)) {
+    return (
+      <VaultSetup
+        passwordHint={passwordHint}
+        onReady={async () => {
+          const user = await api.me()
+          onUserUpdated(user)
+        }}
+      />
+    )
+  }
+
+  if (!isUnlocked) {
+    return (
+      <VaultUnlock
+        user={session.user}
+        passwordHint={passwordHint}
+        onReady={async () => {
+          const user = await api.me()
+          onUserUpdated(user)
+        }}
+      />
+    )
+  }
+
+  return (
+    <AppShell
+      user={session.user}
+      onLogout={async () => {
+        lock()
+        await onLogout()
+      }}
+      onSessionEnded={() => {
+        lock()
+        onSessionEnded()
+      }}
+    />
+  )
+}
+
 function App() {
   const [session, setSession] = useState<AuthSession | null>(() => readStoredSession())
   const [restoring, setRestoring] = useState(() => Boolean(readStoredSession()))
+  const [passwordHint, setPasswordHint] = useState<string | null>(null)
 
   const resetSession = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY)
     api.setToken(null)
     setSession(null)
+    setPasswordHint(null)
     setRestoring(false)
   }, [])
 
@@ -67,6 +126,7 @@ function App() {
     const next = await api.login(loginName, password, signal)
     api.setToken(next.token)
     localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
+    setPasswordHint(password)
     setSession(next)
   }
 
@@ -91,7 +151,25 @@ function App() {
 
   if (!session) return <Login onLogin={login} />
 
-  return <AppShell user={session.user} onLogout={logout} onSessionEnded={resetSession} />
+  return (
+    <VaultProvider>
+      <AuthenticatedApp
+        session={session}
+        passwordHint={passwordHint}
+        onLogout={logout}
+        onSessionEnded={resetSession}
+        onUserUpdated={(user) => {
+          setSession((prev) => {
+            if (!prev) return prev
+            const next = { ...prev, user }
+            localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
+            return next
+          })
+          setPasswordHint(null)
+        }}
+      />
+    </VaultProvider>
+  )
 }
 
 export default App

@@ -58,57 +58,31 @@ interface NoteRepository : JpaRepository<NoteEntity, UUID> {
         @Param("archived") archived: Boolean?,
         pageable: Pageable,
     ): List<NoteEntity>
-
-    @Query(
-        value = """
-            select distinct n.* from notes n
-            where n.user_id = :userId
-              and n.deleted_at is null
-              and (
-                lower(n.title) like lower(:pattern) escape '\'
-                or lower(n.content_raw) like lower(:pattern) escape '\'
-                or exists (
-                    select 1 from note_items i
-                    where i.note_id = n.id
-                      and lower(i.text) like lower(:pattern) escape '\'
-                )
-              )
-            order by n.updated_at desc, n.id desc
-        """,
-        nativeQuery = true,
-    )
-    fun search(
-        @Param("userId") userId: Long,
-        @Param("pattern") pattern: String,
-        pageable: Pageable,
-    ): List<NoteEntity>
-}
-
-interface NoteItemRepository : JpaRepository<NoteItemEntity, UUID> {
-    fun findAllByNoteIdOrderBySortOrderAscIdAsc(noteId: UUID): List<NoteItemEntity>
-
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("delete from NoteItemEntity i where i.noteId = :noteId")
-    fun deleteAllByNoteId(@Param("noteId") noteId: UUID): Int
 }
 
 interface LabelRepository : JpaRepository<LabelEntity, UUID> {
-    fun findAllByUserIdAndNameIn(userId: Long, names: Collection<String>): List<LabelEntity>
+    fun findAllByUserIdOrderByCreatedAtAscIdAsc(userId: Long): List<LabelEntity>
+    fun findByIdAndUserId(id: UUID, userId: Long): LabelEntity?
+    fun findAllByUserIdAndIdIn(userId: Long, ids: Collection<UUID>): List<LabelEntity>
 }
 
 interface NoteLabelRepository : JpaRepository<NoteLabelEntity, UUID> {
     @Query(
         """
-            select l.name from LabelEntity l, NoteLabelEntity nl
-            where nl.noteId = :noteId and nl.labelId = l.id
-            order by lower(l.name), l.name
+            select nl.labelId from NoteLabelEntity nl
+            where nl.noteId = :noteId
+            order by nl.labelId
         """,
     )
-    fun findNamesByNoteId(@Param("noteId") noteId: UUID): List<String>
+    fun findLabelIdsByNoteId(@Param("noteId") noteId: UUID): List<UUID>
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from NoteLabelEntity nl where nl.noteId = :noteId")
     fun deleteAllByNoteId(@Param("noteId") noteId: UUID): Int
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from NoteLabelEntity nl where nl.labelId = :labelId")
+    fun deleteAllByLabelId(@Param("labelId") labelId: UUID): Int
 }
 
 interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
@@ -133,8 +107,4 @@ interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
 
     @Modifying
     fun deleteAllByNoteId(noteId: UUID): Int
-}
-
-interface ImportJobRepository : JpaRepository<ImportJobEntity, UUID> {
-    fun findByIdAndUserId(id: UUID, userId: Long): ImportJobEntity?
 }

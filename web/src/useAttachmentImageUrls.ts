@@ -1,5 +1,7 @@
 import { useEffect, type RefObject } from 'react'
 import { api } from './api'
+import { decryptAttachmentBytes } from './crypto/attachmentCodec'
+import { getCachedNoteKey } from './notesCipher'
 import type { Attachment } from './types'
 
 const ATTACHMENT_SRC =
@@ -13,10 +15,14 @@ export function useAttachmentImageUrls(
   containerRef: RefObject<HTMLElement | null>,
   attachments: Attachment[],
   html: string,
+  noteId?: string,
 ) {
   useEffect(() => {
     const root = containerRef.current
-    if (!root || !html) return
+    if (!root || !html || !noteId) return
+
+    const noteKey = getCachedNoteKey(noteId)
+    if (!noteKey) return
 
     const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]))
     const controller = new AbortController()
@@ -32,10 +38,21 @@ export function useAttachmentImageUrls(
       if (!attachment) return
 
       api
-        .attachmentBlob(attachment, controller.signal)
-        .then((blob) => {
+        .attachmentCipherBlob(attachment.id, attachment.url, controller.signal)
+        .then(async (cipher) => {
           if (controller.signal.aborted) return
-          const url = URL.createObjectURL(blob)
+          const plain = await decryptAttachmentBytes(
+            noteKey,
+            attachment.id,
+            new Uint8Array(cipher),
+          )
+          if (controller.signal.aborted) return
+          const url = URL.createObjectURL(
+            new Blob(
+              [plain.buffer.slice(plain.byteOffset, plain.byteOffset + plain.byteLength) as ArrayBuffer],
+              { type: attachment.mimeType },
+            ),
+          )
           objectUrls.push(url)
           img.src = url
         })
@@ -48,5 +65,5 @@ export function useAttachmentImageUrls(
       controller.abort()
       objectUrls.forEach((url) => URL.revokeObjectURL(url))
     }
-  }, [attachments, containerRef, html])
+  }, [attachments, containerRef, html, noteId])
 }

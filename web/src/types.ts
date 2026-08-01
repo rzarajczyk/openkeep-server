@@ -3,10 +3,28 @@ export type AttachmentKind = 'IMAGE' | 'FILE'
 
 export type UserRole = 'ADMIN' | 'USER'
 
+export interface KdfParams {
+  alg: 'argon2id'
+  m: number
+  t: number
+  p: number
+}
+
+export interface VaultInfo {
+  kdfSalt: string | null
+  kdfParams: KdfParams | null
+  wrappedVaultKey: string | null
+  wrappedVaultKeyRecovery: string | null
+  hasRecoveryKey: boolean
+  initialized: boolean
+  needsRecoveryUnlock: boolean
+}
+
 export interface User {
   id: number
   login: string
   role: UserRole
+  vault: VaultInfo
 }
 
 export interface AuthSession {
@@ -18,7 +36,7 @@ export interface AuthSession {
 export interface ChecklistItem {
   id: string
   text: string
-  /** Server-rendered inline HTML for card preview; empty while editing locally. */
+  /** Client-rendered inline HTML for card preview; empty while editing locally. */
   textRendered: string
   checked: boolean
   sortOrder: number
@@ -33,6 +51,7 @@ export interface Attachment {
   sizeBytes: number
   createdAt: string
   url: string
+  metaCiphertext?: string
 }
 
 export interface Note {
@@ -45,14 +64,18 @@ export interface Note {
   archived: boolean
   pinned: boolean
   labels: string[]
+  labelIds: string[]
   createdAt: string
   updatedAt: string
   version: number
   items: ChecklistItem[]
   attachments: Attachment[]
+  wrappedNoteKey?: string
+  ciphertext?: string
 }
 
 export interface NoteWrite {
+  id?: string
   version?: number
   type?: NoteType
   title?: string
@@ -61,7 +84,51 @@ export interface NoteWrite {
   archived?: boolean
   pinned?: boolean
   labels?: string[]
+  labelIds?: string[]
   items?: Array<Pick<ChecklistItem, 'id' | 'text' | 'checked' | 'sortOrder' | 'indent'>>
+  /** When true, only metadata fields are patched (no ciphertext rewrite). */
+  metadataOnly?: boolean
+}
+
+export interface EncryptedNoteWire {
+  id: string
+  type: NoteType
+  backgroundColor: string
+  archived: boolean
+  pinned: boolean
+  wrappedNoteKey: string
+  ciphertext: string
+  labelIds: string[]
+  attachments: EncryptedAttachmentWire[]
+  createdAt: string
+  updatedAt: string
+  version: number
+}
+
+export interface EncryptedAttachmentWire {
+  id: string
+  metaCiphertext: string
+  sizeBytes: number
+  createdAt: string
+  url: string
+}
+
+export interface EncryptedLabelWire {
+  id: string
+  ciphertext: string
+  createdAt: string
+}
+
+export interface EncryptedNoteWrite {
+  id?: string
+  type: NoteType
+  backgroundColor?: string
+  archived?: boolean
+  pinned?: boolean
+  version?: number
+  wrappedNoteKey?: string
+  ciphertext?: string
+  labelIds?: string[]
 }
 
 export type KeepImportStatus = 'VALIDATING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
@@ -89,7 +156,7 @@ export interface KeepImportJob {
 }
 
 export interface NotesPage {
-  items: Note[]
+  items: EncryptedNoteWire[]
   deletedIds: string[]
   nextUpdatedAfter: string | null
   nextAfterId: string | null

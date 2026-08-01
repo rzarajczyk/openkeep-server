@@ -1,17 +1,39 @@
 import { Download, FileText, LoaderCircle, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api } from './api'
+import { decryptAttachmentBytes } from './crypto/attachmentCodec'
+import { getCachedNoteKey } from './notesCipher'
 import type { Attachment } from './types'
 import { errorMessage, formatBytes } from './utils'
 import { Tooltip } from './Tooltip'
 
 interface AttachmentViewProps {
+  noteId: string
   attachment: Attachment
   compact?: boolean
   onDelete?: (id: string) => Promise<void>
 }
 
+async function decryptAttachmentBlob(
+  noteId: string,
+  attachment: Attachment,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const noteKey = getCachedNoteKey(noteId)
+  if (!noteKey) throw new Error('Note key is not available')
+  const cipher = await api.attachmentCipherBlob(attachment.id, attachment.url, signal)
+  const plain = await decryptAttachmentBytes(
+    noteKey,
+    attachment.id,
+    new Uint8Array(cipher),
+  )
+  return new Blob([plain.buffer.slice(plain.byteOffset, plain.byteOffset + plain.byteLength) as ArrayBuffer], {
+    type: attachment.mimeType,
+  })
+}
+
 export function AttachmentView({
+  noteId,
   attachment,
   compact = false,
   onDelete,
@@ -26,8 +48,7 @@ export function AttachmentView({
     if (attachment.kind !== 'IMAGE') return
     const controller = new AbortController()
     let url: string | null = null
-    api
-      .attachmentBlob(attachment, controller.signal)
+    decryptAttachmentBlob(noteId, attachment, controller.signal)
       .then((blob) => {
         url = URL.createObjectURL(blob)
         setObjectUrl(url)
@@ -42,7 +63,7 @@ export function AttachmentView({
       controller.abort()
       if (url) URL.revokeObjectURL(url)
     }
-  }, [attachment])
+  }, [attachment, noteId])
 
   async function download() {
     setError('')
@@ -50,7 +71,7 @@ export function AttachmentView({
     try {
       const href =
         objectUrl ??
-        URL.createObjectURL(await api.attachmentBlob(attachment))
+        URL.createObjectURL(await decryptAttachmentBlob(noteId, attachment))
       const anchor = document.createElement('a')
       anchor.href = href
       anchor.download = attachment.originalFilename

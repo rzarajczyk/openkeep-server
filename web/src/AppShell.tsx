@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { api } from './api'
+import { encryptLabelName } from './crypto/labelCodec'
 import { NoteCard } from './NoteCard'
 import { NoteEditor } from './NoteEditor'
 import { NotesMasonry } from './NotesMasonry'
@@ -24,13 +25,19 @@ import { KeepImportDialog } from './KeepImportDialog'
 import { UserManagementDialog } from './UserManagementDialog'
 import { UserSettingsDialog } from './UserSettingsDialog'
 import {
+  decryptLabels,
+  fromWire,
+  toWire,
+} from './notesCipher'
+import {
   initialNotesState,
   notesReducer,
   selectNotes,
 } from './notesReducer'
 import { Tooltip } from './Tooltip'
-import type { Note, User } from './types'
+import type { EncryptedNoteWire, Note, User } from './types'
 import { errorMessage } from './utils'
+import { useVault } from './vault/VaultContext'
 
 interface AppShellProps {
   user: User
@@ -43,7 +50,19 @@ interface SyncCursor {
   afterId?: string
 }
 
+function noteMatchesQuery(note: Note, needle: string): boolean {
+  if (note.title.toLowerCase().includes(needle)) return true
+  if (note.contentRaw.toLowerCase().includes(needle)) return true
+  if (note.labels.some((label) => label.toLowerCase().includes(needle))) return true
+  if (note.items.some((item) => item.text.toLowerCase().includes(needle))) return true
+  if (note.attachments.some((attachment) => attachment.originalFilename.toLowerCase().includes(needle))) {
+    return true
+  }
+  return false
+}
+
 export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
+  const { vaultKey } = useVault()
   const [state, dispatch] = useReducer(notesReducer, initialNotesState)
   const [archived, setArchived] = useState(false)
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null)
@@ -63,10 +82,13 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [usersOpen, setUsersOpen] = useState(false)
   const [toast, setToast] = useState('')
+  const [knownLabels, setKnownLabels] = useState<string[]>([])
   const accountRef = useRef<HTMLDivElement>(null)
   const loaded = useRef(new Set<boolean>())
   const cursors = useRef<Record<string, SyncCursor>>({})
   const loadRequest = useRef(0)
+  const labelIdToName = useRef(new Map<string, string>())
+  const labelNameToId = useRef(new Map<string, string>())
 
   const updateSearchNote = useCallback((note: Note) => {
     setSearchResults((results) =>
@@ -74,60 +96,112 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
     )
   }, [])
 
-  const loadNotes = useCallback(async (mode: boolean, incremental = false) => {
-    const request = ++loadRequest.current
-    if (incremental) setSyncing(true)
-    else setLoading(true)
-    setLoadError('')
-    try {
-      const allItems: Note[] = []
-      const deletedIds: string[] = []
-      const cursorKey = incremental ? 'all' : String(mode)
-      let cursor = incremental ? cursors.current[cursorKey] ?? {} : {}
-      let hasMore = true
-      while (hasMore) {
-        const page = await api.notes({
-          archived: incremental ? undefined : mode,
-          limit: 100,
-          updatedAfter: cursor.updatedAfter,
-          afterId: cursor.afterId,
-        })
-        allItems.push(...page.items)
-        deletedIds.push(...page.deletedIds)
-        hasMore = page.hasMore
-        const nextCursor = {
-          updatedAfter: page.nextUpdatedAfter ?? cursor.updatedAfter,
-          afterId: page.nextAfterId ?? cursor.afterId,
-        }
-        if (
-          hasMore &&
-          nextCursor.updatedAfter === cursor.updatedAfter &&
-          nextCursor.afterId === cursor.afterId
-        ) {
-          break
-        }
-        cursor = nextCursor
-      }
-      if (request !== loadRequest.current && !incremental) return
-      dispatch({ type: 'reconcile', notes: allItems, deletedIds })
-      cursors.current[cursorKey] = cursor
-      if (!incremental) loaded.current.add(mode)
-    } catch (reason) {
-      setLoadError(errorMessage(reason))
-    } finally {
-      if (request === loadRequest.current || incremental) {
-        setLoading(false)
-        setSyncing(false)
-      }
+  const refreshLabelMaps = useCallback(async (key: Uint8Array) => {
+    const wires = await api.listLabels()
+    const idToName = await decryptLabels(key, wires)
+    const nameToId = new Map<string, string>()
+    for (const [id, name] of idToName) {
+      nameToId.set(name.toLowerCase(), id)
     }
+    labelIdToName.current = idToName
+    labelNameToId.current = nameToId
+    setKnownLabels(
+      [...idToName.values()].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' }),
+      ),
+    )
+    return idToName
   }, [])
 
-  useEffect(() => {
-    if (!loaded.current.has(archived)) void loadNotes(archived)
-    else setLoading(false)
-  }, [archived, loadNotes])
+  const resolveLabelId = useCallback(
+    async (name: string, key: Uint8Array): Promise<string> => {
+      const lookup = name.toLowerCase()
+      const existing = labelNameToId.current.get(lookup)
+      if (existing) return existing
+      const ciphertext = await encryptLabelName(key, name)
+      const created = await api.createLabel(ciphertext)
+      labelIdToName.current.set(created.id, name)
+      labelNameToId.current.set(lookup, created.id)
+      setKnownLabels((previous) => {
+        const names = new Map(previous.map((label) => [label.toLowerCase(), label]))
+        if (!names.has(lookup)) names.set(lookup, name)
+        return [...names.values()].sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: 'base' }),
+        )
+      })
+      return created.id
+    },
+    [],
+  )
+
+  const loadNotes = useCallback(
+    async (mode: boolean, incremental = false) => {
+      if (!vaultKey) return
+      const request = ++loadRequest.current
+      if (incremental) setSyncing(true)
+      else setLoading(true)
+      setLoadError('')
+      try {
+        const allItems: EncryptedNoteWire[] = []
+        const deletedIds: string[] = []
+        const cursorKey = incremental ? 'all' : String(mode)
+        let cursor = incremental ? cursors.current[cursorKey] ?? {} : {}
+        let hasMore = true
+        while (hasMore) {
+          const page = await api.notes({
+            archived: incremental ? undefined : mode,
+            limit: 100,
+            updatedAfter: cursor.updatedAfter,
+            afterId: cursor.afterId,
+          })
+          allItems.push(...page.items)
+          deletedIds.push(...page.deletedIds)
+          hasMore = page.hasMore
+          const nextCursor = {
+            updatedAfter: page.nextUpdatedAfter ?? cursor.updatedAfter,
+            afterId: page.nextAfterId ?? cursor.afterId,
+          }
+          if (
+            hasMore &&
+            nextCursor.updatedAfter === cursor.updatedAfter &&
+            nextCursor.afterId === cursor.afterId
+          ) {
+            break
+          }
+          cursor = nextCursor
+        }
+        if (request !== loadRequest.current && !incremental) return
+        const labelNames = await refreshLabelMaps(vaultKey)
+        const notes = await Promise.all(
+          allItems.map((wire) => fromWire(wire, vaultKey, labelNames)),
+        )
+        if (request !== loadRequest.current && !incremental) return
+        dispatch({ type: 'reconcile', notes, deletedIds })
+        cursors.current[cursorKey] = cursor
+        if (!incremental) loaded.current.add(mode)
+      } catch (reason) {
+        setLoadError(errorMessage(reason))
+      } finally {
+        if (request === loadRequest.current || incremental) {
+          setLoading(false)
+          setSyncing(false)
+        }
+      }
+    },
+    [refreshLabelMaps, vaultKey],
+  )
 
   useEffect(() => {
+    if (!vaultKey) {
+      setLoading(true)
+      return
+    }
+    if (!loaded.current.has(archived)) void loadNotes(archived)
+    else setLoading(false)
+  }, [archived, loadNotes, vaultKey])
+
+  useEffect(() => {
+    if (!vaultKey) return
     const sync = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
         void loadNotes(archived, true)
@@ -141,7 +215,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       window.removeEventListener('online', sync)
       document.removeEventListener('visibilitychange', sync)
     }
-  }, [archived, loadNotes])
+  }, [archived, loadNotes, vaultKey])
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -151,27 +225,17 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
       setSearching(false)
       return
     }
-    const controller = new AbortController()
     setSearching(true)
     setSearchError('')
     const timer = window.setTimeout(() => {
-      api
-        .search(trimmed, controller.signal)
-        .then((results) => setSearchResults(results))
-        .catch((reason: unknown) => {
-          if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
-            setSearchError(errorMessage(reason))
-          }
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setSearching(false)
-        })
+      const needle = trimmed.toLowerCase()
+      setSearchResults(Object.values(state.byId).filter((note) => noteMatchesQuery(note, needle)))
+      setSearching(false)
     }, 300)
     return () => {
       window.clearTimeout(timer)
-      controller.abort()
     }
-  }, [query])
+  }, [query, state.byId])
 
   useEffect(() => {
     if (!toast) return
@@ -196,19 +260,34 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   }, [accountOpen])
 
   async function createNote() {
+    if (!vaultKey) return
     setCreating(true)
     setLoadError('')
     try {
-      const note = await api.createNote({
-        type: 'TEXT',
-        title: '',
-        contentRaw: '',
-        backgroundColor: '#ffffff',
-        archived: false,
-        pinned: false,
-        labels: selectedLabel ? [selectedLabel] : [],
-        items: [],
-      })
+      const id = crypto.randomUUID()
+      const labelIds: string[] = []
+      const labels: string[] = []
+      if (selectedLabel) {
+        labelIds.push(await resolveLabelId(selectedLabel, vaultKey))
+        labels.push(selectedLabel)
+      }
+      const payload = await toWire(
+        id,
+        {
+          type: 'TEXT',
+          title: '',
+          contentRaw: '',
+          backgroundColor: '#ffffff',
+          archived: false,
+          pinned: false,
+          labels,
+          labelIds,
+          items: [],
+        },
+        vaultKey,
+      )
+      const wire = await api.createNote(payload)
+      const note = await fromWire(wire, vaultKey, labelIdToName.current)
       dispatch({ type: 'upsert', note })
       setArchived(false)
       setPendingNewNoteId(note.id)
@@ -229,12 +308,18 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
     const optimistic = { ...note, archived: !note.archived }
     replaceNote(optimistic)
     try {
-      const canonical = await api.updateNote(note.id, {
+      const wire = await api.updateNote(note.id, {
         archived: !note.archived,
         version: note.version,
+        type: note.type,
       })
-      replaceNote(canonical)
-      setToast(canonical.archived ? 'Note archived' : 'Note restored')
+      replaceNote({
+        ...optimistic,
+        archived: wire.archived,
+        version: wire.version,
+        updatedAt: wire.updatedAt,
+      })
+      setToast(wire.archived ? 'Note archived' : 'Note restored')
     } catch (reason) {
       replaceNote(note)
       setToast(`${errorMessage(reason)} The note was restored.`)
@@ -285,7 +370,6 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
 
   const pinnedNotes = useMemo(() => visibleNotes.filter((note) => note.pinned), [visibleNotes])
   const otherNotes = useMemo(() => visibleNotes.filter((note) => !note.pinned), [visibleNotes])
-  const [knownLabels, setKnownLabels] = useState<string[]>([])
   useEffect(() => {
     setKnownLabels((previous) => {
       const names = new Map<string, string>()
@@ -310,6 +394,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
   }, [state.byId])
 
   const selectedNote = selectedId ? state.byId[selectedId] : null
+  const waitingForVault = !vaultKey
 
   function renderNoteCard(note: Note) {
     return (
@@ -372,7 +457,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             type="button"
             className="icon-button sync-button"
             onClick={() => void loadNotes(archived, true)}
-            disabled={syncing}
+            disabled={syncing || waitingForVault}
             aria-label="Sync notes"
           >
             <RefreshCw className={syncing ? 'spin' : ''} />
@@ -487,10 +572,15 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           </button>
         </nav>
         <div className="mobile-account">
-          <span className="avatar" aria-hidden="true">
-            {user.login.slice(0, 1).toUpperCase()}
-          </span>
-          <span className="user-login">{user.login}</span>
+          <div className="mobile-account-bar">
+            <span className="avatar" aria-hidden="true">
+              {user.login.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="user-login">{user.login}</span>
+            <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label="Sign out">
+              <LogOut />
+            </button>
+          </div>
           <button
             type="button"
             className="mobile-import"
@@ -523,9 +613,6 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           >
             <FileUp aria-hidden="true" /> Import from Google Keep
           </button>
-          <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label="Sign out">
-            <LogOut />
-          </button>
         </div>
         <p className="sidebar-status">
           <span className={navigator.onLine ? 'online-dot' : 'offline-dot'} />
@@ -551,7 +638,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
                 type="button"
                 className="primary-button"
                 onClick={() => void createNote()}
-                disabled={creating}
+                disabled={creating || waitingForVault}
               >
                 {creating ? <LoaderCircle className="spin" /> : <Plus />}
                 Add note
@@ -570,13 +657,13 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             </button>
           </div>
         )}
-        {loading && !loadError && (
+        {(waitingForVault || loading) && !loadError && (
           <div className="state-panel" role="status">
             <LoaderCircle className="spin large" />
             <p>Gathering your notes…</p>
           </div>
         )}
-        {!loading && !loadError && visibleNotes.length === 0 && (
+        {!waitingForVault && !loading && !loadError && visibleNotes.length === 0 && (
           <div className="state-panel empty-state">
             <span className="empty-icon" aria-hidden="true">
               {archived ? <Archive /> : selectedLabel ? <Tag /> : <StickyNote />}
@@ -606,7 +693,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             )}
           </div>
         )}
-        {!loading && visibleNotes.length > 0 && (
+        {!waitingForVault && !loading && visibleNotes.length > 0 && (
           <div
             className="notes-board"
             aria-label={
@@ -648,6 +735,14 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           note={selectedNote}
           knownLabels={knownLabels}
           cancelIfEmpty={pendingNewNoteId === selectedNote.id}
+          ensureLabelIds={async (names) => {
+            if (!vaultKey) throw new Error('Vault is locked')
+            const ids: string[] = []
+            for (const name of names) {
+              ids.push(await resolveLabelId(name, vaultKey))
+            }
+            return ids
+          }}
           onClose={() => {
             setSelectedId(null)
             setPendingNewNoteId(null)

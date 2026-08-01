@@ -62,6 +62,12 @@ import {
 import { api } from './api'
 import { AttachmentView } from './AttachmentView'
 import {
+  decryptAttachmentMeta,
+  encryptAttachmentBytes,
+  encryptAttachmentMeta,
+  inferAttachmentKind,
+} from './crypto/attachmentCodec'
+import {
   insertFencedCode,
   insertHorizontalRule,
   setHeadingLevel,
@@ -73,20 +79,33 @@ import {
   toggleUnderline,
   type TextareaSnapshot,
 } from './markdownFormatting'
+import { renderMarkdown, renderMarkdownInline } from './markdown/renderMarkdown'
+import { fromWire, getCachedNoteKey, toWire } from './notesCipher'
 import { RenderedMarkdown } from './RenderedMarkdown'
 import { Tooltip } from './Tooltip'
-import type { ChecklistItem, Note, SaveState } from './types'
-import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, noteToWrite, INDENT_DRAG_THRESHOLD_PX, MAX_ITEM_INDENT, normalizeIndents } from './utils'
+import type { Attachment, ChecklistItem, Note, SaveState } from './types'
+import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, INDENT_DRAG_THRESHOLD_PX, MAX_ITEM_INDENT, normalizeIndents } from './utils'
+import { useVault } from './vault/VaultContext'
 
 interface NoteEditorProps {
   note: Note
   knownLabels?: string[]
   cancelIfEmpty?: boolean
+  ensureLabelIds: (names: string[]) => Promise<string[]>
   onClose: () => void
   onOptimistic: (note: Note) => void
   onCanonical: (note: Note) => void
   onDelete: (note: Note) => Promise<boolean>
   onDiscard: (note: Note) => Promise<void>
+}
+
+function labelMapFromNames(names: string[], ids: string[]): Map<string, string> {
+  const map = new Map<string, string>()
+  names.forEach((name, index) => {
+    const id = ids[index]
+    if (id) map.set(id, name)
+  })
+  return map
 }
 
 function isConflict(error: unknown): error is { status: number } {
@@ -312,12 +331,14 @@ export function NoteEditor({
   note,
   knownLabels = [],
   cancelIfEmpty = false,
+  ensureLabelIds,
   onClose,
   onOptimistic,
   onCanonical,
   onDelete,
   onDiscard,
 }: NoteEditorProps) {
+  const { vaultKey } = useVault()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
@@ -467,57 +488,37 @@ export function NoteEditor({
 
   useEffect(() => {
     if (draft.type !== 'TEXT' || textEditMode !== 'preview') return
-    const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      void api
-        .previewMarkdown(draft.contentRaw, draft.attachments, controller.signal)
-        .then((result) => setPreviewHtml(result.html))
-        .catch((reason: unknown) => {
-          if (reason instanceof DOMException && reason.name === 'AbortError') return
-        })
+      setPreviewHtml(renderMarkdown(draft.contentRaw, draft.attachments))
     }, 220)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
+    return () => window.clearTimeout(timer)
   }, [draft.attachments, draft.contentRaw, draft.type, textEditMode])
 
   useEffect(() => {
     if (draft.type !== 'LIST' || textEditMode !== 'preview') return
-    const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      void Promise.all(
-        draft.items.map(async (item) => {
-          if (!item.text.trim()) return [item.id, ''] as const
-          if (item.textRendered) return [item.id, item.textRendered] as const
-          try {
-            const result = await api.previewMarkdown(
-              item.text,
-              [],
-              controller.signal,
-              { inline: true },
-            )
-            return [item.id, result.html] as const
-          } catch (reason: unknown) {
-            if (reason instanceof DOMException && reason.name === 'AbortError') {
-              return [item.id, ''] as const
-            }
-            return [item.id, ''] as const
-          }
-        }),
-      ).then((entries) => {
-        if (controller.signal.aborted) return
-        setItemPreviewHtml(Object.fromEntries(entries))
-      })
+      setItemPreviewHtml(
+        Object.fromEntries(
+          draft.items.map((item) => [
+            item.id,
+            !item.text.trim()
+              ? ''
+              : item.textRendered || renderMarkdownInline(item.text),
+          ]),
+        ),
+      )
     }, 220)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
+    return () => window.clearTimeout(timer)
   }, [draft.items, draft.type, textEditMode])
 
   const flush = useCallback(async () => {
     if (saving.current || requestedRevision.current <= savedRevision.current) return
+    if (!vaultKey) {
+      setSaveState('error')
+      setSaveError('Vault is locked. Unlock before saving.')
+      saveFailed.current = true
+      return
+    }
     saving.current = true
     const capturedRevision = requestedRevision.current
     const capturedDraft = latestDraft.current
@@ -526,7 +527,28 @@ export function NoteEditor({
     setSaveState('saving')
     setSaveError('')
     try {
-      const canonical = await api.updateNote(capturedDraft.id, noteToWrite(capturedDraft))
+      const labelIds = await ensureLabelIds(capturedDraft.labels)
+      const withLabels = { ...capturedDraft, labelIds }
+      latestDraft.current = withLabels
+      setDraft(withLabels)
+      const labelMap = labelMapFromNames(withLabels.labels, labelIds)
+      const wire = await toWire(
+        withLabels.id,
+        {
+          type: withLabels.type,
+          title: withLabels.title,
+          contentRaw: withLabels.contentRaw,
+          items: withLabels.items,
+          labelIds,
+          backgroundColor: withLabels.backgroundColor,
+          archived: withLabels.archived,
+          pinned: withLabels.pinned,
+          version: withLabels.version,
+        },
+        vaultKey,
+      )
+      const response = await api.updateNote(withLabels.id, wire)
+      const canonical = await fromWire(response, vaultKey, labelMap)
       if (thisRequest === requestId.current) {
         savedRevision.current = capturedRevision
         onCanonical(canonical)
@@ -540,6 +562,8 @@ export function NoteEditor({
             version: canonical.version,
             updatedAt: canonical.updatedAt,
             attachments: canonical.attachments,
+            labelIds: canonical.labelIds,
+            labels: canonical.labels,
           }
           latestDraft.current = merged
           setDraft(merged)
@@ -551,8 +575,13 @@ export function NoteEditor({
         let message = errorMessage(reason)
         if (isConflict(reason)) {
           try {
-            const serverNote = await api.note(capturedDraft.id)
+            const serverWire = await api.note(capturedDraft.id)
             if (thisRequest === requestId.current) {
+              const labelMap = labelMapFromNames(
+                latestDraft.current.labels,
+                latestDraft.current.labelIds,
+              )
+              const serverNote = await fromWire(serverWire, vaultKey, labelMap)
               const rebased = {
                 ...latestDraft.current,
                 attachments: serverNote.attachments,
@@ -582,7 +611,7 @@ export function NoteEditor({
         void flush()
       }
     }
-  }, [onCanonical, onOptimistic])
+  }, [ensureLabelIds, onCanonical, onOptimistic, vaultKey])
 
   const flushRef = useRef(flush)
   flushRef.current = flush
@@ -681,7 +710,7 @@ export function NoteEditor({
     })
   }
 
-  function addLabel(raw: string, options: { keepMenuOpen?: boolean } = {}) {
+  async function addLabel(raw: string, options: { keepMenuOpen?: boolean } = {}) {
     const label = resolveLabelName(raw)
     if (!label) {
       setLabelError('Enter a label name.')
@@ -696,11 +725,18 @@ export function NoteEditor({
       return false
     }
     rememberLabel(label)
-    change((current) => ({ ...current, labels: [...current.labels, label] }))
-    setNewLabelText('')
-    setLabelError('')
-    if (!options.keepMenuOpen) setLabelMenuOpen(false)
-    return true
+    const nextLabels = [...latestDraft.current.labels, label]
+    try {
+      const labelIds = await ensureLabelIds(nextLabels)
+      change((current) => ({ ...current, labels: nextLabels, labelIds }))
+      setNewLabelText('')
+      setLabelError('')
+      if (!options.keepMenuOpen) setLabelMenuOpen(false)
+      return true
+    } catch (reason) {
+      setLabelError(errorMessage(reason))
+      return false
+    }
   }
 
   function toggleMenuLabel(label: string) {
@@ -709,14 +745,21 @@ export function NoteEditor({
       setLabelError('')
       return
     }
-    addLabel(label)
+    void addLabel(label)
   }
 
   function removeLabel(label: string) {
-    change((current) => ({
-      ...current,
-      labels: current.labels.filter((item) => item !== label),
-    }))
+    change((current) => {
+      const index = current.labels.indexOf(label)
+      return {
+        ...current,
+        labels: current.labels.filter((item) => item !== label),
+        labelIds:
+          index >= 0
+            ? current.labelIds.filter((_, labelIndex) => labelIndex !== index)
+            : current.labelIds,
+      }
+    })
   }
 
   function updateItem(id: string, patch: Partial<ChecklistItem>) {
@@ -845,7 +888,13 @@ export function NoteEditor({
     }
   }
 
-  function mergeServerMetadata(serverNote: Note) {
+  async function mergeServerMetadataFromWire() {
+    if (!vaultKey) throw new Error('Vault is locked')
+    const labelMap = labelMapFromNames(
+      latestDraft.current.labels,
+      latestDraft.current.labelIds,
+    )
+    const serverNote = await fromWire(await api.note(draft.id), vaultKey, labelMap)
     const next = {
       ...latestDraft.current,
       attachments: serverNote.attachments,
@@ -864,7 +913,41 @@ export function NoteEditor({
     setUploadError('')
     setUploadProgress(0)
     try {
-      const attachment = await api.uploadAttachment(draft.id, file, setUploadProgress)
+      const noteKey = getCachedNoteKey(draft.id)
+      if (!noteKey) throw new Error('Note key is not available. Reopen the note after unlocking.')
+      const attachmentId = createId()
+      const mimeType = file.type || 'application/octet-stream'
+      const kind = inferAttachmentKind(mimeType)
+      const plainBytes = new Uint8Array(await file.arrayBuffer())
+      const cipherBytes = await encryptAttachmentBytes(noteKey, attachmentId, plainBytes)
+      const metaCiphertext = await encryptAttachmentMeta(noteKey, attachmentId, {
+        originalFilename: file.name,
+        mimeType,
+        kind,
+      })
+      const wire = await api.uploadAttachment(
+        draft.id,
+        new Blob([
+          cipherBytes.buffer.slice(
+            cipherBytes.byteOffset,
+            cipherBytes.byteOffset + cipherBytes.byteLength,
+          ) as ArrayBuffer,
+        ]),
+        metaCiphertext,
+        attachmentId,
+        setUploadProgress,
+      )
+      const meta = await decryptAttachmentMeta(noteKey, wire.id, wire.metaCiphertext)
+      const attachment: Attachment = {
+        id: wire.id,
+        kind: meta.kind ?? inferAttachmentKind(meta.mimeType),
+        originalFilename: meta.originalFilename,
+        mimeType: meta.mimeType,
+        sizeBytes: wire.sizeBytes,
+        createdAt: wire.createdAt,
+        url: wire.url,
+        metaCiphertext: wire.metaCiphertext,
+      }
       const next = {
         ...latestDraft.current,
         attachments: [...latestDraft.current.attachments, attachment],
@@ -875,7 +958,7 @@ export function NoteEditor({
       setDraft(next)
       onCanonical(next)
       try {
-        mergeServerMetadata(await api.note(draft.id))
+        await mergeServerMetadataFromWire()
       } catch {
         setUploadError('The file was uploaded, but note metadata could not be refreshed. Sync before editing again.')
       }
@@ -902,7 +985,7 @@ export function NoteEditor({
     setDraft(next)
     onCanonical(next)
     try {
-      mergeServerMetadata(await api.note(draft.id))
+      await mergeServerMetadataFromWire()
     } catch {
       setUploadError('The attachment was deleted, but note metadata could not be refreshed. Sync before editing again.')
     }
@@ -1017,6 +1100,7 @@ export function NoteEditor({
                 <RenderedMarkdown
                   className="rendered-content"
                   html={previewHtml}
+                  noteId={draft.id}
                   attachments={draft.attachments}
                 />
               ) : (
@@ -1132,14 +1216,14 @@ export function NoteEditor({
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') {
                           event.preventDefault()
-                          addLabel(newLabelText, { keepMenuOpen: true })
+                          void addLabel(newLabelText, { keepMenuOpen: true })
                         }
                       }}
                     />
                     <button
                       type="button"
                       className="secondary-button"
-                      onClick={() => addLabel(newLabelText, { keepMenuOpen: true })}
+                      onClick={() => void addLabel(newLabelText, { keepMenuOpen: true })}
                     >
                       Create
                     </button>
@@ -1183,6 +1267,7 @@ export function NoteEditor({
             {draft.attachments.map((attachment) => (
               <AttachmentView
                 key={attachment.id}
+                noteId={draft.id}
                 attachment={attachment}
                 onDelete={deleteAttachment}
               />

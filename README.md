@@ -47,6 +47,9 @@ docker compose down          # keeps data volumes
 
 ## Security
 
+- Notes and attachments are zero-knowledge encrypted in the browser; the API stores opaque ciphertext only
+- On first unlock, each user receives a **recovery key** — store it offline. Admin password reset clears the password wrap; recovery is required to regain vault access
+- V5 schema migration wipes existing note/attachment rows (dev cutover). Clear the attachment volume when upgrading from pre-ZK builds
 - Configure secrets only in `.env` (see `.env.example`)
 - Use HTTPS and a reverse proxy in production; bind `OPENKEEP_PORT=127.0.0.1:8080` if the proxy runs on the same host
 - Rotate any credential that was ever committed or shared

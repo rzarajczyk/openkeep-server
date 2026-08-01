@@ -1,6 +1,5 @@
 package com.openkeep.api
 
-import org.apache.tika.Tika
 import org.slf4j.LoggerFactory
 import org.springframework.core.io.InputStreamResource
 import org.springframework.http.ContentDisposition
@@ -104,18 +103,27 @@ class AttachmentService(
     private val noteRepository: NoteRepository,
     private val attachmentRepository: AttachmentRepository,
     private val storage: AttachmentStorage,
-    private val markdownService: MarkdownService,
     private val properties: OpenKeepProperties,
 ) {
-    private val tika = Tika()
-
     @Transactional
-    fun upload(userId: Long, noteId: UUID, file: MultipartFile): AttachmentResponse {
+    fun upload(
+        userId: Long,
+        noteId: UUID,
+        file: MultipartFile,
+        metaCiphertextBase64: String,
+        attachmentId: UUID? = null,
+    ): AttachmentResponse {
         val user = userRepository.findForUpdateById(userId)
             ?: throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "User no longer exists")
         if (!user.enabled) throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "User is disabled")
         val note = noteRepository.findByIdAndUserIdAndDeletedAtIsNull(noteId, userId)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
+        val metaCiphertext = CryptoSupport.decodeRequired(
+            metaCiphertextBase64,
+            "metaCiphertext",
+            minBytes = 28,
+            maxBytes = 16_384,
+        )
         val declaredSize = file.size
         val maxSize = properties.attachment.maxFileSize
         if (declaredSize > maxSize) {
@@ -132,9 +140,10 @@ class AttachmentService(
                 throw ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "quota_exceeded", "Attachment storage quota exceeded")
             }
 
-            val filename = safeFilename(file.originalFilename)
-            val detectedMime = detectMime(temp)
-            val id = UUID.randomUUID()
+            val id = attachmentId ?: UUID.randomUUID()
+            if (attachmentId != null && attachmentRepository.existsById(id)) {
+                throw ApiException(HttpStatus.CONFLICT, "attachment_exists", "An attachment with this id already exists")
+            }
             val relativePath = "$userId/$noteId/$id"
             finalPath = storage.moveIntoPlace(temp, relativePath)
             storage.deleteOnRollback(finalPath)
@@ -143,58 +152,15 @@ class AttachmentService(
                 AttachmentEntity(
                     id = id,
                     noteId = noteId,
-                    kind = if (detectedMime in SAFE_INLINE_IMAGE_TYPES) AttachmentKind.IMAGE else AttachmentKind.FILE,
-                    originalFilename = filename,
                     storagePath = relativePath,
-                    mimeType = detectedMime,
+                    metaCiphertext = metaCiphertext,
                     sizeBytes = actualSize,
                     createdAt = Instant.now(),
                 ),
             )
             note.updatedAt = Instant.now()
-            refreshTextContentRendered(note)
             noteRepository.save(note)
             return metadata.toResponse()
-        } catch (ex: Exception) {
-            storage.deleteBestEffort(finalPath ?: temp)
-            throw ex
-        }
-    }
-
-    @Transactional
-    fun importFromPath(userId: Long, noteId: UUID, source: Path, originalFilename: String, createdAt: Instant) {
-        val user = userRepository.findForUpdateById(userId)
-            ?: throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "User no longer exists")
-        if (!user.enabled) throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "User is disabled")
-        noteRepository.findByIdAndUserIdAndDeletedAtIsNull(noteId, userId)
-            ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
-
-        val temp = storage.createTempFile()
-        var finalPath: Path? = null
-        try {
-            val actualSize = copyPathWithLimit(source, temp, properties.attachment.maxFileSize)
-            val used = attachmentRepository.totalBytesForUser(userId)
-            val quota = properties.attachment.perUserQuota
-            if (actualSize > quota || used > quota - actualSize) {
-                throw ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "quota_exceeded", "Attachment storage quota exceeded")
-            }
-            val id = UUID.randomUUID()
-            val relativePath = "$userId/$noteId/$id"
-            finalPath = storage.moveIntoPlace(temp, relativePath)
-            storage.deleteOnRollback(finalPath)
-            val detectedMime = detectMime(finalPath)
-            attachmentRepository.save(
-                AttachmentEntity(
-                    id = id,
-                    noteId = noteId,
-                    kind = if (detectedMime in SAFE_INLINE_IMAGE_TYPES) AttachmentKind.IMAGE else AttachmentKind.FILE,
-                    originalFilename = safeFilename(originalFilename),
-                    storagePath = relativePath,
-                    mimeType = detectedMime,
-                    sizeBytes = actualSize,
-                    createdAt = createdAt,
-                ),
-            )
         } catch (ex: Exception) {
             storage.deleteBestEffort(finalPath ?: temp)
             throw ex
@@ -220,16 +186,8 @@ class AttachmentService(
             ?: throw ApiException(HttpStatus.NOT_FOUND, "note_not_found", "Note not found")
         attachmentRepository.delete(metadata)
         note.updatedAt = Instant.now()
-        refreshTextContentRendered(note)
         noteRepository.save(note)
         storage.deleteAfterCommit(listOf(metadata.storagePath))
-    }
-
-    private fun refreshTextContentRendered(note: NoteEntity) {
-        if (note.type != NoteType.TEXT) return
-        val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(note.id)
-            .map { MarkdownAttachmentRef(it.id, it.originalFilename, it.kind) }
-        note.contentRendered = markdownService.render(note.contentRaw, attachments)
     }
 
     private fun copyWithLimit(file: MultipartFile, temp: Path, maxSize: Long): Long {
@@ -251,66 +209,13 @@ class AttachmentService(
         return total
     }
 
-    private fun copyPathWithLimit(source: Path, temp: Path, maxSize: Long): Long {
-        var total = 0L
-        Files.newInputStream(source).use { input ->
-            Files.newOutputStream(temp, StandardOpenOption.TRUNCATE_EXISTING).use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    total += read
-                    if (total > maxSize) {
-                        throw ApiException(
-                            HttpStatus.PAYLOAD_TOO_LARGE,
-                            "file_too_large",
-                            "File exceeds the configured size limit",
-                        )
-                    }
-                    output.write(buffer, 0, read)
-                }
-            }
-        }
-        return total
-    }
-
-    private fun detectMime(path: Path): String = try {
-        tika.detect(path).takeIf { it.isNotBlank() } ?: MediaType.APPLICATION_OCTET_STREAM_VALUE
-    } catch (_: Exception) {
-        MediaType.APPLICATION_OCTET_STREAM_VALUE
-    }
-
-    private fun safeFilename(original: String?): String {
-        val base = original
-            ?.replace('\\', '/')
-            ?.substringAfterLast('/')
-            ?.filterNot { it.isISOControl() }
-            ?.trim()
-            ?.take(255)
-            .orEmpty()
-        return base.ifBlank { "download" }
-    }
-
     private fun AttachmentEntity.toResponse() = AttachmentResponse(
         id = id,
-        kind = kind,
-        originalFilename = originalFilename,
-        mimeType = mimeType,
+        metaCiphertext = CryptoSupport.encode(metaCiphertext),
         sizeBytes = sizeBytes,
         createdAt = createdAt,
         url = "/attachments/$id",
     )
-
-    companion object {
-        private val SAFE_INLINE_IMAGE_TYPES = setOf(
-            "image/png",
-            "image/jpeg",
-            "image/gif",
-            "image/webp",
-            "image/avif",
-            "image/bmp",
-        )
-    }
 }
 
 @RestController
@@ -320,9 +225,19 @@ class AttachmentController(private val attachmentService: AttachmentService) {
         authentication: UsernamePasswordAuthenticationToken,
         @PathVariable noteId: UUID,
         @RequestPart("file") file: MultipartFile,
+        @RequestPart("metaCiphertext") metaCiphertext: String,
+        @RequestPart(name = "attachmentId", required = false) attachmentId: String?,
     ): ResponseEntity<AttachmentResponse> {
         val principal = authentication.principal as OpenKeepPrincipal
-        return ResponseEntity.status(HttpStatus.CREATED).body(attachmentService.upload(principal.userId, noteId, file))
+        val parsedId = attachmentId?.let {
+            try {
+                UUID.fromString(it.trim())
+            } catch (_: IllegalArgumentException) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "invalid_attachment_id", "attachmentId must be a UUID")
+            }
+        }
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(attachmentService.upload(principal.userId, noteId, file, metaCiphertext, parsedId))
     }
 
     @GetMapping("/attachments/{id}")
@@ -332,20 +247,13 @@ class AttachmentController(private val attachmentService: AttachmentService) {
     ): ResponseEntity<InputStreamResource> {
         val principal = authentication.principal as OpenKeepPrincipal
         val stored = attachmentService.open(principal.userId, id)
-        val disposition = if (stored.metadata.kind == AttachmentKind.IMAGE) {
-            ContentDisposition.inline()
-        } else {
-            ContentDisposition.attachment()
-        }.filename(stored.metadata.originalFilename, StandardCharsets.UTF_8).build()
-        val mediaType = try {
-            MediaType.parseMediaType(stored.metadata.mimeType)
-        } catch (_: Exception) {
-            MediaType.APPLICATION_OCTET_STREAM
-        }
+        val disposition = ContentDisposition.attachment()
+            .filename("attachment.bin", StandardCharsets.UTF_8)
+            .build()
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
             .header("X-Content-Type-Options", "nosniff")
-            .contentType(mediaType)
+            .contentType(MediaType.APPLICATION_OCTET_STREAM)
             .contentLength(stored.metadata.sizeBytes)
             .body(InputStreamResource(Files.newInputStream(stored.path)))
     }

@@ -22,9 +22,12 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import org.springframework.web.filter.OncePerRequestFilter
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -50,9 +53,51 @@ data class ChangePasswordRequest(
     @field:NotBlank
     @field:Size(max = 1024)
     val newPassword: String,
+    @field:NotBlank
+    val wrappedVaultKey: String,
 )
 
-data class MeResponse(val id: Long, val login: String, val role: UserRole)
+data class KdfParamsDto(
+    val alg: String,
+    val m: Int,
+    val t: Int,
+    val p: Int,
+)
+
+data class VaultInfo(
+    val kdfSalt: String?,
+    val kdfParams: KdfParamsDto?,
+    val wrappedVaultKey: String?,
+    val wrappedVaultKeyRecovery: String?,
+    val hasRecoveryKey: Boolean,
+    val initialized: Boolean,
+    val needsRecoveryUnlock: Boolean,
+)
+
+data class InitializeVaultRequest(
+    @field:NotBlank
+    val kdfSalt: String,
+    @field:Valid
+    val kdfParams: KdfParamsDto,
+    @field:NotBlank
+    val wrappedVaultKey: String,
+    @field:NotBlank
+    val wrappedVaultKeyRecovery: String,
+)
+
+data class UpdateVaultWrapRequest(
+    @field:NotBlank
+    val wrappedVaultKey: String,
+    val wrappedVaultKeyRecovery: String? = null,
+)
+
+data class MeResponse(
+    val id: Long,
+    val login: String,
+    val role: UserRole,
+    val vault: VaultInfo,
+)
+
 data class LoginResponse(val token: String, val expiresAt: Instant, val user: MeResponse)
 
 data class OpenKeepPrincipal(
@@ -156,13 +201,6 @@ class AdminBootstrapRunner(
         }
         require(properties.attachment.maxFileSize > 0) { "openkeep.attachment.max-file-size must be positive" }
         require(properties.attachment.perUserQuota > 0) { "openkeep.attachment.per-user-quota must be positive" }
-        require(properties.takeoutImport.maxUploadSize > 0) { "openkeep.takeout-import.max-upload-size must be positive" }
-        require(properties.takeoutImport.maxEntries > 0) { "openkeep.takeout-import.max-entries must be positive" }
-        require(properties.takeoutImport.maxEntrySize > 0) { "openkeep.takeout-import.max-entry-size must be positive" }
-        require(properties.takeoutImport.maxUncompressedSize > 0) {
-            "openkeep.takeout-import.max-uncompressed-size must be positive"
-        }
-        require(properties.takeoutImport.maxWarnings > 0) { "openkeep.takeout-import.max-warnings must be positive" }
 
         if (bootstrapService.hasEnabledAdmin()) return
 
@@ -211,8 +249,73 @@ class AuthService(
         return LoginResponse(
             rawToken,
             expiresAt,
-            MeResponse(requireNotNull(user.id), user.login, user.role),
+            toMeResponse(user),
         )
+    }
+
+    @Transactional(readOnly = true)
+    fun me(userId: Long): MeResponse {
+        val user = userRepository.findById(userId).orElse(null)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
+        return toMeResponse(user)
+    }
+
+    @Transactional
+    fun initializeVault(userId: Long, request: InitializeVaultRequest): VaultInfo {
+        val user = userRepository.findById(userId).orElse(null)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
+        if (user.vaultInitialized) {
+            throw ApiException(HttpStatus.CONFLICT, "vault_exists", "Vault is already initialized")
+        }
+        validateKdfParams(request.kdfParams)
+        user.kdfSalt = CryptoSupport.decodeRequired(request.kdfSalt, "kdfSalt", minBytes = 16, maxBytes = 64)
+        user.kdfParams = VAULT_JSON.writeValueAsString(request.kdfParams)
+        user.wrappedVaultKey = CryptoSupport.decodeRequired(
+            request.wrappedVaultKey,
+            "wrappedVaultKey",
+            minBytes = 28,
+            maxBytes = 512,
+        )
+        user.wrappedVaultKeyRecovery = CryptoSupport.decodeRequired(
+            request.wrappedVaultKeyRecovery,
+            "wrappedVaultKeyRecovery",
+            minBytes = 28,
+            maxBytes = 512,
+        )
+        user.vaultInitializedAt = clock.instant()
+        user.updatedAt = clock.instant()
+        userRepository.save(user)
+        return toVaultInfo(user)
+    }
+
+    @Transactional
+    fun updateVaultWrap(userId: Long, request: UpdateVaultWrapRequest): VaultInfo {
+        val user = userRepository.findById(userId).orElse(null)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
+        if (user.wrappedVaultKeyRecovery == null || user.kdfSalt == null) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "vault_not_initialized", "Vault is not initialized")
+        }
+        // Password wrap may have been cleared by admin reset; recovery wrap must remain.
+        user.wrappedVaultKey = CryptoSupport.decodeRequired(
+            request.wrappedVaultKey,
+            "wrappedVaultKey",
+            minBytes = 28,
+            maxBytes = 512,
+        )
+        request.wrappedVaultKeyRecovery?.let {
+            user.wrappedVaultKeyRecovery = CryptoSupport.decodeRequired(
+                it,
+                "wrappedVaultKeyRecovery",
+                minBytes = 28,
+                maxBytes = 512,
+            )
+        }
+        if (user.vaultInitializedAt == null) {
+            user.vaultInitializedAt = clock.instant()
+        }
+        user.updatedAt = clock.instant()
+        userRepository.save(user)
+        return toVaultInfo(user)
     }
 
     @Transactional(readOnly = true)
@@ -235,6 +338,13 @@ class AuthService(
         validateUserPassword(request.newPassword, "new password")
         val user = userRepository.findById(userId).orElse(null)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "not_found", "User not found")
+        if (!user.vaultInitialized) {
+            throw ApiException(
+                HttpStatus.BAD_REQUEST,
+                "vault_not_initialized",
+                "Initialize the vault before changing password",
+            )
+        }
         val currentWithinLimit = request.currentPassword.toByteArray(StandardCharsets.UTF_8).size <= 72
         val matches = currentWithinLimit && runCatching {
             passwordEncoder.matches(request.currentPassword, user.passwordHash)
@@ -244,6 +354,12 @@ class AuthService(
         }
         val now = clock.instant()
         user.passwordHash = passwordEncoder.encode(request.newPassword)
+        user.wrappedVaultKey = CryptoSupport.decodeRequired(
+            request.wrappedVaultKey,
+            "wrappedVaultKey",
+            minBytes = 28,
+            maxBytes = 512,
+        )
         user.updatedAt = now
         userRepository.save(user)
         authTokenRepository.revokeAllForUser(userId, now)
@@ -251,11 +367,43 @@ class AuthService(
 
     companion object {
         private const val DUMMY_PASSWORD_HASH = "\$2a\$12\$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW"
+        private val VAULT_JSON = jacksonObjectMapper()
 
         fun hashToken(rawToken: String): String =
             MessageDigest.getInstance("SHA-256")
                 .digest(rawToken.toByteArray(StandardCharsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
+
+        fun validateKdfParams(params: KdfParamsDto) {
+            if (params.alg != "argon2id") {
+                throw ApiException(HttpStatus.BAD_REQUEST, "invalid_kdf", "Unsupported KDF algorithm")
+            }
+            if (params.m !in 8_192..1_048_576 || params.t !in 1..10 || params.p !in 1..4) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "invalid_kdf", "Invalid KDF parameters")
+            }
+        }
+
+        fun toVaultInfo(user: UserEntity): VaultInfo {
+            val params = user.kdfParams?.let { raw ->
+                runCatching { VAULT_JSON.readValue<KdfParamsDto>(raw) }.getOrNull()
+            }
+            return VaultInfo(
+                kdfSalt = user.kdfSalt?.let(CryptoSupport::encode),
+                kdfParams = params,
+                wrappedVaultKey = user.wrappedVaultKey?.let(CryptoSupport::encode),
+                wrappedVaultKeyRecovery = user.wrappedVaultKeyRecovery?.let(CryptoSupport::encode),
+                hasRecoveryKey = user.wrappedVaultKeyRecovery != null,
+                initialized = user.vaultInitialized,
+                needsRecoveryUnlock = user.vaultInitialized && user.wrappedVaultKey == null,
+            )
+        }
+
+        fun toMeResponse(user: UserEntity) = MeResponse(
+            id = requireNotNull(user.id),
+            login = user.login,
+            role = user.role,
+            vault = toVaultInfo(user),
+        )
     }
 }
 
@@ -368,7 +516,25 @@ class MeController(private val authService: AuthService) {
     @GetMapping("/me")
     fun me(authentication: UsernamePasswordAuthenticationToken): MeResponse {
         val principal = authentication.principal as OpenKeepPrincipal
-        return MeResponse(principal.userId, principal.username, principal.role)
+        return authService.me(principal.userId)
+    }
+
+    @PostMapping("/me/vault")
+    fun initializeVault(
+        authentication: UsernamePasswordAuthenticationToken,
+        @Valid @RequestBody request: InitializeVaultRequest,
+    ): VaultInfo {
+        val principal = authentication.principal as OpenKeepPrincipal
+        return authService.initializeVault(principal.userId, request)
+    }
+
+    @PutMapping("/me/vault/wrap")
+    fun updateVaultWrap(
+        authentication: UsernamePasswordAuthenticationToken,
+        @Valid @RequestBody request: UpdateVaultWrapRequest,
+    ): VaultInfo {
+        val principal = authentication.principal as OpenKeepPrincipal
+        return authService.updateVaultWrap(principal.userId, request)
     }
 
     @PatchMapping("/me/password")

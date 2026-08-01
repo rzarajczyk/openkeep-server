@@ -5,6 +5,7 @@ import { useAttachmentImageUrls } from './useAttachmentImageUrls'
 
 interface RenderedMarkdownProps {
   html: string
+  noteId?: string
   attachments?: Attachment[]
   className?: string
   /** When true, renders a <span> for checklist / inline contexts. */
@@ -17,13 +18,14 @@ interface RenderedMarkdownProps {
  */
 export function RenderedMarkdown({
   html,
+  noteId,
   attachments = [],
   className,
   inline = false,
 }: RenderedMarkdownProps) {
   const ref = useRef<HTMLElement | null>(null)
   const markup = useMemo(() => sanitizedMarkup(html), [html])
-  useAttachmentImageUrls(ref, attachments, html)
+  useAttachmentImageUrls(ref, attachments, html, noteId)
 
   if (inline) {
     return (

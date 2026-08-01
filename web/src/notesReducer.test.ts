@@ -13,6 +13,7 @@ function note(id: string, version: number, archived = false): Note {
     title: `Note ${id}`,
     contentRaw: '',
     contentRendered: '',
+    labelIds: [],
     backgroundColor: '#fff',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: `2026-01-0${version}T00:00:00Z`,
