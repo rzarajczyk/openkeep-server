@@ -1,10 +1,10 @@
-# OpenKeep — Application Specification
+# OwnKeep — Application Specification
 
 Self-hosted, Docker-packaged alternative to Google Keep, with multi-user accounts, **zero-knowledge encrypted** notes (text/list), labels, pinning, attachments, client-side Google Keep Takeout import, sync API, and a web client.
 
 ## Product Scope
 
-OpenKeep is a multi-user notes app for small self-hosted deployments, packaged with Docker and exposing both a server API and a browser client. Core value: sign in, unlock a per-user vault, create encrypted notes, organize with labels and pins, sync ciphertext automatically, and browse notes after client-side decrypt in a Google Keep-style layout.
+OwnKeep is a multi-user notes app for small self-hosted deployments, packaged with Docker and exposing both a server API and a browser client. Core value: sign in, unlock a per-user vault, create encrypted notes, organize with labels and pins, sync ciphertext automatically, and browse notes after client-side decrypt in a Google Keep-style layout.
 
 **In scope:** zero-knowledge encryption (Argon2id + AES-GCM), text and checklist notes, checklist item indentation, encrypted labels, pin/archive, encrypted attachments, **client-side** search/sort/markdown preview, incremental sync of opaque note blobs, client-side Google Keep Takeout ZIP import, recovery key after admin password reset.
 
@@ -43,7 +43,7 @@ Authentication is sessionless: login returns a bearer token, and every request i
 
 ### Users
 - `id`, `login`, `password_hash`, `enabled`, `role` (`ADMIN` or `USER`), vault fields (`kdf_salt`, `kdf_params`, `wrapped_vault_key`, `wrapped_vault_key_recovery`, `vault_initialized_at`), `created_at`, `updated_at`
-- The first admin is bootstrapped once from `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` when no enabled admin exists
+- The first admin is bootstrapped once from `OWNKEEP_ADMIN_USERNAME` / `OWNKEEP_ADMIN_PASSWORD` when no enabled admin exists
 - Additional users are created by an admin in the app (no public signup). Soft-delete sets `enabled=false` and revokes tokens; login remains reserved
 
 ### Auth tokens
@@ -161,7 +161,7 @@ Each card shows the title when present (empty titles are omitted — no “Untit
 ### Client implementation notes
 
 - React + TypeScript SPA served by the `web` container; `/api` is proxied to the API service in Compose deployments.
-- Bearer token stored in browser `localStorage`; session expires per `OPENKEEP_TOKEN_TTL`.
+- Bearer token stored in browser `localStorage`; session expires per `OWNKEEP_TOKEN_TTL`.
 
 ## Database Choice: PostgreSQL vs MongoDB vs Firebase
 
@@ -169,16 +169,16 @@ Each card shows the title when present (empty titles are omitted — no “Untit
 |---|---|---|---|
 | Data model fit | Relational — clean fit for users, notes, list items, attachments as related tables | Document — good for flexible/nested note bodies, weaker for strict relations | Managed NoSQL — real-time sync built-in, but rigid query model |
 | Transactions/integrity | Full ACID, ideal for multi-user data ownership rules | Weaker consistency guarantees by default | Limited transactional guarantees at scale |
-| Self-hosting | Fully self-hostable, matches OpenKeep's self-hosted requirement | Self-hostable, but adds extra ops burden vs Postgres | Cloud-only, Google-managed — breaks the self-hosted goal entirely |
+| Self-hosting | Fully self-hostable, matches OwnKeep's self-hosted requirement | Self-hostable, but adds extra ops burden vs Postgres | Cloud-only, Google-managed — breaks the self-hosted goal entirely |
 | Search | Built-in `ILIKE`/full-text search sufficient for "simple search" requirement | Text search available but adds complexity for this use case | Requires third-party search add-ons (e.g. Algolia) |
 | Attachments | Metadata in relational tables, bytes on disk/object storage — clean separation | Can embed metadata in documents; GridFS for large files adds overhead | Firebase Storage handles files, but ties app fully to Google's stack |
 | Vendor lock-in | None — open source, portable | None — open source, portable | High — proprietary APIs and hosting |
 
-**Recommendation: PostgreSQL.** OpenKeep's data is inherently relational (users → notes → list items → attachments), needs ACID guarantees for concurrent multi-device edits, and must run fully self-hosted in Docker — a hard requirement Firebase cannot satisfy since it's a Google-managed cloud service. MongoDB is a reasonable alternative if note content becomes highly unstructured, but for OpenKeep's fixed shape, plain SQL with JSONB for note body is simpler to operate and query than a document store. Firebase is excluded outright — it's cloud-only, introduces vendor lock-in, and directly contradicts the self-hosted requirement.
+**Recommendation: PostgreSQL.** OwnKeep's data is inherently relational (users → notes → list items → attachments), needs ACID guarantees for concurrent multi-device edits, and must run fully self-hosted in Docker — a hard requirement Firebase cannot satisfy since it's a Google-managed cloud service. MongoDB is a reasonable alternative if note content becomes highly unstructured, but for OwnKeep's fixed shape, plain SQL with JSONB for note body is simpler to operate and query than a document store. Firebase is excluded outright — it's cloud-only, introduces vendor lock-in, and directly contradicts the self-hosted requirement.
 
 ## Delivery Rules
 
-- Package everything as Docker: `openkeep-web`, `openkeep-api`, and `postgres`, one-command startup via Compose
+- Package everything as Docker: `ownkeep-web`, `ownkeep-api`, and `postgres`, one-command startup via Compose
 - Persist DB data in a named volume
 - Configure secrets via environment variables
 - Expose the app behind a reverse proxy path or domain

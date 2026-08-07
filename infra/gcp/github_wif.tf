@@ -1,7 +1,7 @@
 resource "google_iam_workload_identity_pool" "github" {
   workload_identity_pool_id = "github-actions"
   display_name              = "GitHub Actions"
-  description               = "OIDC federation for deploying OpenKeep from GitHub Actions"
+  description               = "OIDC federation for deploying OwnKeep from GitHub Actions"
   depends_on                = [google_project_service.required]
 }
 

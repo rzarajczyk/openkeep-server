@@ -1,10 +1,10 @@
 #!/bin/sh
-# Derive POSTGRES_* for the official Postgres image from OPENKEEP_DATABASE_URL.
+# Derive POSTGRES_* for the official Postgres image from OWNKEEP_DATABASE_URL.
 set -eu
 
-url="${OPENKEEP_DATABASE_URL:-}"
+url="${OWNKEEP_DATABASE_URL:-}"
 if [ -z "$url" ]; then
-  echo "OPENKEEP_DATABASE_URL is required" >&2
+  echo "OWNKEEP_DATABASE_URL is required" >&2
   exit 1
 fi
 
@@ -16,7 +16,7 @@ esac
 case "$url" in
   postgres://*|postgresql://*) ;;
   *)
-    echo "OPENKEEP_DATABASE_URL must be a postgres://, postgresql://, or jdbc:postgresql:// URL" >&2
+    echo "OWNKEEP_DATABASE_URL must be a postgres://, postgresql://, or jdbc:postgresql:// URL" >&2
     exit 1
     ;;
 esac
@@ -25,7 +25,7 @@ rest="${url#*://}"
 userinfo="${rest%%@*}"
 hostpath="${rest#*@}"
 if [ "$userinfo" = "$rest" ]; then
-  echo "OPENKEEP_DATABASE_URL must include user:password@" >&2
+  echo "OWNKEEP_DATABASE_URL must include user:password@" >&2
   exit 1
 fi
 
@@ -33,13 +33,13 @@ fi
 user="${userinfo%%:*}"
 pass="${userinfo#*:}"
 if [ "$user" = "$userinfo" ] || [ -z "$pass" ]; then
-  echo "OPENKEEP_DATABASE_URL must include user:password@" >&2
+  echo "OWNKEEP_DATABASE_URL must include user:password@" >&2
   exit 1
 fi
 
 pathquery="${hostpath#*/}"
 db="${pathquery%%\?*}"
-db="${db:-openkeep}"
+db="${db:-ownkeep}"
 
 # Full percent-decode (+ → space, %XX → byte). Works on BusyBox ash/sed.
 decode() {

@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
@@ -135,7 +135,7 @@ class UsersController(private val userManagementService: UserManagementService) 
         authentication: UsernamePasswordAuthenticationToken,
         @PathVariable id: Long,
     ): ResponseEntity<Void> {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         userManagementService.softDeleteUser(principal.userId, id)
         return ResponseEntity.noContent().build()
     }
@@ -146,7 +146,7 @@ class UsersController(private val userManagementService: UserManagementService) 
         @PathVariable id: Long,
         @Valid @RequestBody request: ResetPasswordRequest,
     ): ResponseEntity<Void> {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         userManagementService.resetPassword(principal.userId, id, request)
         return ResponseEntity.noContent().build()
     }

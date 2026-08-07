@@ -8,7 +8,7 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
 }
 
-group = "com.openkeep"
+group = "com.ownkeep"
 version = "0.1.0"
 
 java {

@@ -1,4 +1,4 @@
-package com.openkeep.api.storage
+package com.ownkeep.api.storage
 
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.support.TransactionSynchronization

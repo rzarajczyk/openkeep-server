@@ -1,7 +1,7 @@
 variable "project_id" {
   description = "GCP project ID"
   type        = string
-  default     = "openkeep-504806"
+  default     = "ownkeep-net"
 }
 
 variable "region" {
@@ -13,17 +13,17 @@ variable "region" {
 variable "image" {
   description = "Container image for Cloud Run"
   type        = string
-  default     = "docker.io/rzarajczyk/openkeep:latest"
+  default     = "docker.io/rzarajczyk/ownkeep:latest"
 }
 
 variable "github_repository" {
   description = "GitHub repository (owner/name) allowed to deploy via WIF"
   type        = string
-  default     = "rzarajczyk/openkeep-server"
+  default     = "rzarajczyk/ownkeep-server"
 }
 
 variable "database_url" {
-  description = "JDBC URL for Spring (OPENKEEP_DATABASE_URL), without embedded credentials"
+  description = "JDBC URL for Spring (OWNKEEP_DATABASE_URL), without embedded credentials"
   type        = string
   sensitive   = true
 }
@@ -54,7 +54,7 @@ variable "admin_password" {
 variable "service_name" {
   description = "Cloud Run service name"
   type        = string
-  default     = "openkeep"
+  default     = "ownkeep"
 }
 
 variable "cpu" {

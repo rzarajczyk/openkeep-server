@@ -8,7 +8,7 @@ import type { AuthSession, User } from './types'
 import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
 import { VaultSetup, VaultUnlock } from './vault/VaultGate'
 
-const TOKEN_KEY = 'openkeep.auth'
+const TOKEN_KEY = 'ownkeep.auth'
 
 function readStoredSession(): AuthSession | null {
   try {
@@ -144,7 +144,7 @@ function App() {
         <span className="brand-mark">
           <LoaderCircle className="spin" />
         </span>
-        <p>Opening OpenKeep…</p>
+        <p>Opening OwnKeep…</p>
       </main>
     )
   }

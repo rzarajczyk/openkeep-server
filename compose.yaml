@@ -1,26 +1,26 @@
-name: openkeep
+name: ownkeep
 
 services:
   app:
     build:
       context: .
-    image: openkeep:latest
+    image: ownkeep:latest
     restart: unless-stopped
     init: true
     ports:
-      - "${OPENKEEP_PORT:-8080}:8080"
+      - "${OWNKEEP_PORT:-8080}:8080"
     environment:
-      OPENKEEP_DATABASE_URL: "${OPENKEEP_DATABASE_URL:?Set OPENKEEP_DATABASE_URL in .env}"
+      OWNKEEP_DATABASE_URL: "${OWNKEEP_DATABASE_URL:?Set OWNKEEP_DATABASE_URL in .env}"
       SPRING_JPA_OPEN_IN_VIEW: "false"
-      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: "${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:-26214400}B"
-      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: "${OPENKEEP_MULTIPART_MAX_REQUEST_SIZE:-27262976}B"
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: "${OWNKEEP_ATTACHMENT_MAX_FILE_SIZE:-26214400}B"
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: "${OWNKEEP_MULTIPART_MAX_REQUEST_SIZE:-27262976}B"
       SERVER_FORWARD_HEADERS_STRATEGY: framework
-      OPENKEEP_ADMIN_USERNAME: "${OPENKEEP_ADMIN_USERNAME:?Set OPENKEEP_ADMIN_USERNAME in .env}"
-      OPENKEEP_ADMIN_PASSWORD: "${OPENKEEP_ADMIN_PASSWORD:?Set OPENKEEP_ADMIN_PASSWORD in .env}"
-      OPENKEEP_TOKEN_TTL: "${OPENKEEP_TOKEN_TTL:-PT24H}"
-      OPENKEEP_ATTACHMENT_STORAGE_ROOT: /data/attachments
-      OPENKEEP_ATTACHMENT_MAX_FILE_SIZE: "${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:-26214400}"
-      OPENKEEP_ATTACHMENT_PER_USER_QUOTA: "${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:-1073741824}"
+      OWNKEEP_ADMIN_USERNAME: "${OWNKEEP_ADMIN_USERNAME:?Set OWNKEEP_ADMIN_USERNAME in .env}"
+      OWNKEEP_ADMIN_PASSWORD: "${OWNKEEP_ADMIN_PASSWORD:?Set OWNKEEP_ADMIN_PASSWORD in .env}"
+      OWNKEEP_TOKEN_TTL: "${OWNKEEP_TOKEN_TTL:-PT24H}"
+      OWNKEEP_ATTACHMENT_STORAGE_ROOT: /data/attachments
+      OWNKEEP_ATTACHMENT_MAX_FILE_SIZE: "${OWNKEEP_ATTACHMENT_MAX_FILE_SIZE:-26214400}"
+      OWNKEEP_ATTACHMENT_PER_USER_QUOTA: "${OWNKEEP_ATTACHMENT_PER_USER_QUOTA:-1073741824}"
     volumes:
       - attachments:/data/attachments
     depends_on:
@@ -50,7 +50,7 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      OPENKEEP_DATABASE_URL: "${OPENKEEP_DATABASE_URL:?Set OPENKEEP_DATABASE_URL in .env}"
+      OWNKEEP_DATABASE_URL: "${OWNKEEP_DATABASE_URL:?Set OWNKEEP_DATABASE_URL in .env}"
     volumes:
       - postgres:/var/lib/postgresql
       - ./docker/postgres-entrypoint.sh:/postgres-entrypoint.sh:ro
@@ -77,6 +77,6 @@ services:
 
 volumes:
   postgres:
-    name: openkeep-postgres
+    name: ownkeep-postgres
   attachments:
-    name: openkeep-attachments
+    name: ownkeep-attachments

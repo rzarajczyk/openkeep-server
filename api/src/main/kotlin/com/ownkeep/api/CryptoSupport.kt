@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import org.springframework.http.HttpStatus
 import java.util.Base64

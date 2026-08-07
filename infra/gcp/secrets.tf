@@ -8,10 +8,10 @@ locals {
   }
 }
 
-resource "google_secret_manager_secret" "openkeep" {
+resource "google_secret_manager_secret" "ownkeep" {
   for_each = local.secret_values
 
-  secret_id = "openkeep-${each.key}"
+  secret_id = "ownkeep-${each.key}"
 
   replication {
     auto {}
@@ -20,9 +20,9 @@ resource "google_secret_manager_secret" "openkeep" {
   depends_on = [google_project_service.required]
 }
 
-resource "google_secret_manager_secret_version" "openkeep" {
+resource "google_secret_manager_secret_version" "ownkeep" {
   for_each = local.secret_values
 
-  secret      = google_secret_manager_secret.openkeep[each.key].id
+  secret      = google_secret_manager_secret.ownkeep[each.key].id
   secret_data = each.value
 }

@@ -423,11 +423,11 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
         >
           <Menu />
         </button>
-        <a className="app-brand" href="/" aria-label="OpenKeep notes">
+        <a className="app-brand" href="/" aria-label="OwnKeep notes">
           <span className="brand-mark small" aria-hidden="true">
             <KeyRound />
           </span>
-          <span>OpenKeep</span>
+          <span>OwnKeep</span>
         </a>
         <div className="search-box" role="search">
           {searching ? <LoaderCircle className="spin" /> : <Search />}

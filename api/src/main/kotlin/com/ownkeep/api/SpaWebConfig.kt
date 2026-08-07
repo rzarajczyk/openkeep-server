@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.io.Resource

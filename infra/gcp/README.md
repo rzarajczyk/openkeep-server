@@ -1,7 +1,7 @@
-# OpenKeep on GCP (OpenTofu + Cloud Run)
+# OwnKeep on GCP (OpenTofu + Cloud Run)
 
 Provisions GCS (attachments), Secret Manager, Cloud Run, and GitHub Actions
-Workload Identity Federation for project `openkeep-504806` in **europe-west1**.
+Workload Identity Federation for project `ownkeep-net` in **europe-west1**.
 
 Postgres stays on **Neon** (or any Postgres). Cloudflare custom domains are out of scope here.
 
@@ -9,9 +9,9 @@ Postgres stays on **Neon** (or any Postgres). Cloudflare custom domains are out 
 
 1. [OpenTofu](https://opentofu.org/) `>= 1.6` (`tofu` on `PATH`)
 2. `gcloud` authenticated (`gcloud auth application-default login` and access to the project)
-3. Billing enabled on `openkeep-504806` (already linked)
+3. Billing enabled on `ownkeep-net` (already linked)
 4. A Neon (or other) Postgres database — prefer an **EU** region
-5. Docker Hub image `rzarajczyk/openkeep` (published by CI on `main`)
+5. Docker Hub image `rzarajczyk/ownkeep` (published by CI on `main`)
 
 ## Configure `.env`
 
@@ -26,17 +26,17 @@ Required for `setup.sh`:
 
 | Variable | Purpose |
 |---|---|
-| `GCP_PROJECT_ID` | GCP project (`openkeep-504806`) |
+| `GCP_PROJECT_ID` | GCP project (`ownkeep-net`) |
 | `GCP_REGION` | Cloud Run + GCS region (`europe-west1`) |
-| `OPENKEEP_DATABASE_URL` | Neon connection string (paste as-is; `postgres://…`) |
-| `OPENKEEP_ADMIN_USERNAME` | Bootstrap admin login |
-| `OPENKEEP_ADMIN_PASSWORD` | Bootstrap admin password |
+| `OWNKEEP_DATABASE_URL` | Neon connection string (paste as-is; `postgres://…`) |
+| `OWNKEEP_ADMIN_USERNAME` | Bootstrap admin login |
+| `OWNKEEP_ADMIN_PASSWORD` | Bootstrap admin password |
 
 Optional:
 
 | Variable | Default |
 |---|---|
-| `OPENKEEP_IMAGE` | `docker.io/rzarajczyk/openkeep:latest` |
+| `OWNKEEP_IMAGE` | `docker.io/rzarajczyk/ownkeep:latest` |
 
 ## Apply infra
 
@@ -74,10 +74,10 @@ Re-running `./infra/gcp/setup.sh` after changing Neon or admin credentials updat
 ## Manual redeploy
 
 ```sh
-gcloud run services update openkeep \
-  --project=openkeep-504806 \
+gcloud run services update ownkeep \
+  --project=ownkeep-net \
   --region=europe-west1 \
-  --image=docker.io/rzarajczyk/openkeep:latest
+  --image=docker.io/rzarajczyk/ownkeep:latest
 ```
 
 ## Cost note

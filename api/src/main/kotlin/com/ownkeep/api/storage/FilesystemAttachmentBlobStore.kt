@@ -1,4 +1,4 @@
-package com.openkeep.api.storage
+package com.ownkeep.api.storage
 
 import java.io.InputStream
 import java.nio.file.AtomicMoveNotSupportedException

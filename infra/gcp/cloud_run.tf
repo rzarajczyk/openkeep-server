@@ -1,4 +1,4 @@
-resource "google_cloud_run_v2_service" "openkeep" {
+resource "google_cloud_run_v2_service" "ownkeep" {
   name                = var.service_name
   location            = var.region
   ingress             = "INGRESS_TRAFFIC_ALL"
@@ -10,7 +10,7 @@ resource "google_cloud_run_v2_service" "openkeep" {
     # Hash of secret payloads so rotating Secret Manager values forces a new revision
     # (Cloud Run mounts secret "latest" at deploy time only). Hash only — not the secrets.
     annotations = {
-      "openkeep.dev/secrets-hash" = nonsensitive(sha256(jsonencode(local.secret_values)))
+      "ownkeep.net/secrets-hash" = nonsensitive(sha256(jsonencode(local.secret_values)))
     }
 
     scaling {
@@ -55,60 +55,60 @@ resource "google_cloud_run_v2_service" "openkeep" {
       }
 
       env {
-        name  = "OPENKEEP_ATTACHMENT_STORAGE"
+        name  = "OWNKEEP_ATTACHMENT_STORAGE"
         value = "gcs"
       }
 
       env {
-        name  = "OPENKEEP_ATTACHMENT_GCS_BUCKET"
+        name  = "OWNKEEP_ATTACHMENT_GCS_BUCKET"
         value = google_storage_bucket.attachments.name
       }
 
       env {
-        name = "OPENKEEP_DATABASE_URL"
+        name = "OWNKEEP_DATABASE_URL"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.openkeep["database-url"].secret_id
+            secret  = google_secret_manager_secret.ownkeep["database-url"].secret_id
             version = "latest"
           }
         }
       }
 
       env {
-        name = "OPENKEEP_DATABASE_USER"
+        name = "OWNKEEP_DATABASE_USER"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.openkeep["database-user"].secret_id
+            secret  = google_secret_manager_secret.ownkeep["database-user"].secret_id
             version = "latest"
           }
         }
       }
 
       env {
-        name = "OPENKEEP_DATABASE_PASSWORD"
+        name = "OWNKEEP_DATABASE_PASSWORD"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.openkeep["database-password"].secret_id
+            secret  = google_secret_manager_secret.ownkeep["database-password"].secret_id
             version = "latest"
           }
         }
       }
 
       env {
-        name = "OPENKEEP_ADMIN_USERNAME"
+        name = "OWNKEEP_ADMIN_USERNAME"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.openkeep["admin-username"].secret_id
+            secret  = google_secret_manager_secret.ownkeep["admin-username"].secret_id
             version = "latest"
           }
         }
       }
 
       env {
-        name = "OPENKEEP_ADMIN_PASSWORD"
+        name = "OWNKEEP_ADMIN_PASSWORD"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.openkeep["admin-password"].secret_id
+            secret  = google_secret_manager_secret.ownkeep["admin-password"].secret_id
             version = "latest"
           }
         }
@@ -123,7 +123,7 @@ resource "google_cloud_run_v2_service" "openkeep" {
 
   depends_on = [
     google_project_service.required,
-    google_secret_manager_secret_version.openkeep,
+    google_secret_manager_secret_version.ownkeep,
     google_secret_manager_secret_iam_member.runtime_accessor,
     google_storage_bucket_iam_member.runtime_objects,
   ]
@@ -139,9 +139,9 @@ resource "google_cloud_run_v2_service" "openkeep" {
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
-  project  = google_cloud_run_v2_service.openkeep.project
-  location = google_cloud_run_v2_service.openkeep.location
-  name     = google_cloud_run_v2_service.openkeep.name
+  project  = google_cloud_run_v2_service.ownkeep.project
+  location = google_cloud_run_v2_service.ownkeep.location
+  name     = google_cloud_run_v2_service.ownkeep.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }

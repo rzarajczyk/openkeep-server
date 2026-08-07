@@ -1,4 +1,4 @@
-package com.openkeep.api.storage
+package com.ownkeep.api.storage
 
 import com.google.cloud.storage.BlobId
 import com.google.cloud.storage.BlobInfo

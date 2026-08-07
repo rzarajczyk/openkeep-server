@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
@@ -100,7 +100,7 @@ data class MeResponse(
 
 data class LoginResponse(val token: String, val expiresAt: Instant, val user: MeResponse)
 
-data class OpenKeepPrincipal(
+data class OwnKeepPrincipal(
     val userId: Long,
     private val login: String,
     val role: UserRole,
@@ -157,7 +157,7 @@ class AdminBootstrapService(
         if (existing != null) {
             if (!existing.enabled) {
                 throw IllegalStateException(
-                    "OPENKEEP_ADMIN_USERNAME matches a disabled user; re-enable or choose a different admin username",
+                    "OWNKEEP_ADMIN_USERNAME matches a disabled user; re-enable or choose a different admin username",
                 )
             }
             existing.role = UserRole.ADMIN
@@ -182,31 +182,31 @@ class AdminBootstrapService(
 
 @Component
 class AdminBootstrapRunner(
-    private val properties: OpenKeepProperties,
+    private val properties: OwnKeepProperties,
     private val bootstrapService: AdminBootstrapService,
 ) : ApplicationRunner {
     override fun run(args: ApplicationArguments) {
         require(properties.tokenTtl.isNegative.not() && properties.tokenTtl.isZero.not()) {
-            "openkeep.token-ttl must be positive"
+            "ownkeep.token-ttl must be positive"
         }
-        require(properties.maxSyncLimit > 0) { "openkeep.max-sync-limit must be positive" }
+        require(properties.maxSyncLimit > 0) { "ownkeep.max-sync-limit must be positive" }
         require(properties.loginRateLimit.maxAttemptsPerIp > 0) {
-            "openkeep.login-rate-limit.max-attempts-per-ip must be positive"
+            "ownkeep.login-rate-limit.max-attempts-per-ip must be positive"
         }
         require(properties.loginRateLimit.maxAttemptsPerLogin > 0) {
-            "openkeep.login-rate-limit.max-attempts-per-login must be positive"
+            "ownkeep.login-rate-limit.max-attempts-per-login must be positive"
         }
         require(!properties.loginRateLimit.window.isNegative && !properties.loginRateLimit.window.isZero) {
-            "openkeep.login-rate-limit.window must be positive"
+            "ownkeep.login-rate-limit.window must be positive"
         }
-        require(properties.attachment.maxFileSize > 0) { "openkeep.attachment.max-file-size must be positive" }
-        require(properties.attachment.perUserQuota > 0) { "openkeep.attachment.per-user-quota must be positive" }
+        require(properties.attachment.maxFileSize > 0) { "ownkeep.attachment.max-file-size must be positive" }
+        require(properties.attachment.perUserQuota > 0) { "ownkeep.attachment.per-user-quota must be positive" }
 
         if (bootstrapService.hasEnabledAdmin()) return
 
         if (properties.adminUsername.isBlank() || properties.adminPassword.isBlank()) {
             throw IllegalStateException(
-                "OPENKEEP_ADMIN_USERNAME and OPENKEEP_ADMIN_PASSWORD are required when no admin user exists",
+                "OWNKEEP_ADMIN_USERNAME and OWNKEEP_ADMIN_PASSWORD are required when no admin user exists",
             )
         }
         bootstrapService.bootstrap(properties.adminUsername, properties.adminPassword)
@@ -218,7 +218,7 @@ class AuthService(
     private val userRepository: UserRepository,
     private val authTokenRepository: AuthTokenRepository,
     private val passwordEncoder: PasswordEncoder,
-    private val properties: OpenKeepProperties,
+    private val properties: OwnKeepProperties,
 ) {
     private val secureRandom = SecureRandom()
     private val clock: Clock = Clock.systemUTC()
@@ -319,13 +319,13 @@ class AuthService(
     }
 
     @Transactional(readOnly = true)
-    fun authenticate(rawToken: String): OpenKeepPrincipal? {
+    fun authenticate(rawToken: String): OwnKeepPrincipal? {
         if (rawToken.length !in 32..256) return null
         val token = authTokenRepository.findByTokenHashAndRevokedAtIsNullAndExpiresAtAfter(hashToken(rawToken), clock.instant())
             ?: return null
         val user = userRepository.findById(token.userId).orElse(null) ?: return null
         if (!user.enabled) return null
-        return OpenKeepPrincipal(requireNotNull(user.id), user.login, user.role, token.tokenHash)
+        return OwnKeepPrincipal(requireNotNull(user.id), user.login, user.role, token.tokenHash)
     }
 
     @Transactional
@@ -413,7 +413,7 @@ class AuthService(
  * distributed guessing against one account are throttled.
  */
 class LoginRateLimiter(
-    private val properties: OpenKeepProperties,
+    private val properties: OwnKeepProperties,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val buckets = java.util.concurrent.ConcurrentHashMap<String, Window>()
@@ -502,7 +502,7 @@ class AuthController(
 
     @PostMapping("/logout")
     fun logout(authentication: UsernamePasswordAuthenticationToken): ResponseEntity<Void> {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         authService.logout(principal.tokenHash)
         return ResponseEntity.noContent().build()
     }
@@ -515,7 +515,7 @@ class AuthController(
 class MeController(private val authService: AuthService) {
     @GetMapping("/me")
     fun me(authentication: UsernamePasswordAuthenticationToken): MeResponse {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         return authService.me(principal.userId)
     }
 
@@ -524,7 +524,7 @@ class MeController(private val authService: AuthService) {
         authentication: UsernamePasswordAuthenticationToken,
         @Valid @RequestBody request: InitializeVaultRequest,
     ): VaultInfo {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         return authService.initializeVault(principal.userId, request)
     }
 
@@ -533,7 +533,7 @@ class MeController(private val authService: AuthService) {
         authentication: UsernamePasswordAuthenticationToken,
         @Valid @RequestBody request: UpdateVaultWrapRequest,
     ): VaultInfo {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         return authService.updateVaultWrap(principal.userId, request)
     }
 
@@ -542,7 +542,7 @@ class MeController(private val authService: AuthService) {
         authentication: UsernamePasswordAuthenticationToken,
         @Valid @RequestBody request: ChangePasswordRequest,
     ): ResponseEntity<Void> {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         authService.changePassword(principal.userId, request)
         return ResponseEntity.noContent().build()
     }

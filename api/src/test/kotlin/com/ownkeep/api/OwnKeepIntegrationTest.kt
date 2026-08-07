@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.assertj.core.api.Assertions.assertThat
@@ -25,22 +25,22 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import java.util.Base64
 import java.util.UUID
 
-class OpenKeepPostgres(image: String) : PostgreSQLContainer<OpenKeepPostgres>(image)
+class OwnKeepPostgres(image: String) : PostgreSQLContainer<OwnKeepPostgres>(image)
 
 @SpringBootTest(
     properties = [
-        "openkeep.admin-username=alice",
-        "openkeep.admin-password=alice-password",
-        "openkeep.token-ttl=1h",
-        "openkeep.attachment.max-file-size=1024",
-        "openkeep.attachment.per-user-quota=4096",
-        "openkeep.login-rate-limit.max-attempts-per-ip=10000",
-        "openkeep.login-rate-limit.max-attempts-per-login=10000",
+        "ownkeep.admin-username=alice",
+        "ownkeep.admin-password=alice-password",
+        "ownkeep.token-ttl=1h",
+        "ownkeep.attachment.max-file-size=1024",
+        "ownkeep.attachment.per-user-quota=4096",
+        "ownkeep.login-rate-limit.max-attempts-per-ip=10000",
+        "ownkeep.login-rate-limit.max-attempts-per-login=10000",
     ],
 )
 @AutoConfigureMockMvc
 @Testcontainers(disabledWithoutDocker = true)
-class OpenKeepIntegrationTest {
+class OwnKeepIntegrationTest {
     @Autowired
     lateinit var mockMvc: MockMvc
 
@@ -335,7 +335,7 @@ class OpenKeepIntegrationTest {
     companion object {
         @Container
         @JvmStatic
-        val postgres = OpenKeepPostgres("postgres:16-alpine")
+        val postgres = OwnKeepPostgres("postgres:16-alpine")
 
         @JvmStatic
         @DynamicPropertySource
@@ -343,8 +343,8 @@ class OpenKeepIntegrationTest {
             registry.add("spring.datasource.url", postgres::getJdbcUrl)
             registry.add("spring.datasource.username", postgres::getUsername)
             registry.add("spring.datasource.password", postgres::getPassword)
-            registry.add("openkeep.attachment.storage-root") {
-                java.nio.file.Files.createTempDirectory("openkeep-att").toString()
+            registry.add("ownkeep.attachment.storage-root") {
+                java.nio.file.Files.createTempDirectory("ownkeep-att").toString()
             }
         }
     }

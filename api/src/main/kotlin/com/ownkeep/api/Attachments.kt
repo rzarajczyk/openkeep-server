@@ -1,7 +1,7 @@
-package com.openkeep.api
+package com.ownkeep.api
 
-import com.openkeep.api.storage.AttachmentBlobStore
-import com.openkeep.api.storage.AttachmentSizeLimitExceededException
+import com.ownkeep.api.storage.AttachmentBlobStore
+import com.ownkeep.api.storage.AttachmentSizeLimitExceededException
 import org.springframework.core.io.InputStreamResource
 import org.springframework.http.ContentDisposition
 import org.springframework.http.HttpHeaders
@@ -34,7 +34,7 @@ class AttachmentService(
     private val noteRepository: NoteRepository,
     private val attachmentRepository: AttachmentRepository,
     private val blobStore: AttachmentBlobStore,
-    private val properties: OpenKeepProperties,
+    private val properties: OwnKeepProperties,
 ) {
     @Transactional
     fun upload(
@@ -153,7 +153,7 @@ class AttachmentController(private val attachmentService: AttachmentService) {
         @RequestPart("metaCiphertext") metaCiphertext: String,
         @RequestPart(name = "attachmentId", required = false) attachmentId: String?,
     ): ResponseEntity<AttachmentResponse> {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         val parsedId = attachmentId?.let {
             try {
                 UUID.fromString(it.trim())
@@ -170,7 +170,7 @@ class AttachmentController(private val attachmentService: AttachmentService) {
         authentication: UsernamePasswordAuthenticationToken,
         @PathVariable id: UUID,
     ): ResponseEntity<InputStreamResource> {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         val stored = attachmentService.open(principal.userId, id)
         val disposition = ContentDisposition.attachment()
             .filename("attachment.bin", StandardCharsets.UTF_8)
@@ -188,7 +188,7 @@ class AttachmentController(private val attachmentService: AttachmentService) {
         authentication: UsernamePasswordAuthenticationToken,
         @PathVariable id: UUID,
     ): ResponseEntity<Void> {
-        val principal = authentication.principal as OpenKeepPrincipal
+        val principal = authentication.principal as OwnKeepPrincipal
         attachmentService.delete(principal.userId, id)
         return ResponseEntity.noContent().build()
     }

@@ -38,7 +38,7 @@ export function Login({ onLogin }: LoginProps) {
           <span className="brand-mark" aria-hidden="true">
             <KeyRound />
           </span>
-          <span>OpenKeep</span>
+          <span>OwnKeep</span>
         </div>
         <div className="login-copy">
           <span className="eyebrow">Your notes, on your server</span>
@@ -79,7 +79,7 @@ export function Login({ onLogin }: LoginProps) {
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-        <p className="privacy-note">Your data stays in your OpenKeep installation.</p>
+        <p className="privacy-note">Your data stays in your OwnKeep installation.</p>
       </section>
       <aside className="login-art" aria-hidden="true">
         <div className="art-note art-note-one">

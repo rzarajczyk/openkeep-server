@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -21,27 +21,27 @@ class DatabaseUrlTest {
     @Test
     fun `preserves neon query options and maps channel_binding for JDBC`() {
         val parsed = DatabaseUrls.parse(
-            "postgresql://neondb_owner:password@ep-square-forest-b1yve61q-pooler.c-5.eu-central-1.aws.neon.tech/openkeep-main?sslmode=require&channel_binding=require",
+            "postgresql://neondb_owner:password@ep-square-forest-b1yve61q-pooler.c-5.eu-central-1.aws.neon.tech/ownkeep-main?sslmode=require&channel_binding=require",
         )
         assertThat(parsed.username).isEqualTo("neondb_owner")
         assertThat(parsed.password).isEqualTo("password")
         assertThat(parsed.jdbcUrl).isEqualTo(
-            "jdbc:postgresql://ep-square-forest-b1yve61q-pooler.c-5.eu-central-1.aws.neon.tech/openkeep-main?sslmode=require&channelBinding=require",
+            "jdbc:postgresql://ep-square-forest-b1yve61q-pooler.c-5.eu-central-1.aws.neon.tech/ownkeep-main?sslmode=require&channelBinding=require",
         )
     }
 
     @Test
     fun `parses local compose uri`() {
-        val parsed = DatabaseUrls.parse("postgresql://openkeep:s3cret@db:5432/openkeep")
-        assertThat(parsed.jdbcUrl).isEqualTo("jdbc:postgresql://db:5432/openkeep")
-        assertThat(parsed.username).isEqualTo("openkeep")
+        val parsed = DatabaseUrls.parse("postgresql://ownkeep:s3cret@db:5432/ownkeep")
+        assertThat(parsed.jdbcUrl).isEqualTo("jdbc:postgresql://db:5432/ownkeep")
+        assertThat(parsed.username).isEqualTo("ownkeep")
         assertThat(parsed.password).isEqualTo("s3cret")
     }
 
     @Test
     fun `passes through jdbc url without embedded credentials`() {
-        val parsed = DatabaseUrls.parse("jdbc:postgresql://localhost:5432/openkeep")
-        assertThat(parsed.jdbcUrl).isEqualTo("jdbc:postgresql://localhost:5432/openkeep")
+        val parsed = DatabaseUrls.parse("jdbc:postgresql://localhost:5432/ownkeep")
+        assertThat(parsed.jdbcUrl).isEqualTo("jdbc:postgresql://localhost:5432/ownkeep")
         assertThat(parsed.username).isNull()
         assertThat(parsed.password).isNull()
     }
@@ -53,9 +53,9 @@ class DatabaseUrlTest {
     }
 
     @Test
-    fun `post processor fails fast on invalid OPENKEEP_DATABASE_URL`() {
+    fun `post processor fails fast on invalid OWNKEEP_DATABASE_URL`() {
         val env = MockEnvironment()
-        env.setProperty("OPENKEEP_DATABASE_URL", "mysql://localhost/db")
+        env.setProperty("OWNKEEP_DATABASE_URL", "mysql://localhost/db")
         assertThatThrownBy {
             DatabaseUrlEnvironmentPostProcessor().postProcessEnvironment(env, SpringApplication())
         }
@@ -67,7 +67,7 @@ class DatabaseUrlTest {
     fun `post processor applies neon uri credentials`() {
         val env = MockEnvironment()
         env.setProperty(
-            "OPENKEEP_DATABASE_URL",
+            "OWNKEEP_DATABASE_URL",
             "postgresql://neondb_owner:npg_secret%21@ep-foo.eu-central-1.aws.neon.tech/neondb?sslmode=require",
         )
         DatabaseUrlEnvironmentPostProcessor().postProcessEnvironment(env, SpringApplication())

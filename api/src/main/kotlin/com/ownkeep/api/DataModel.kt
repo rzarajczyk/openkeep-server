@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity

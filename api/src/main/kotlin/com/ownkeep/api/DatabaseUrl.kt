@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import org.springframework.boot.SpringApplication
 import org.springframework.boot.env.EnvironmentPostProcessor
@@ -33,7 +33,7 @@ object DatabaseUrls {
             return parseLibpq(trimmed)
         }
         throw IllegalArgumentException(
-            "OPENKEEP_DATABASE_URL must be a postgres://, postgresql://, or jdbc:postgresql:// URL",
+            "OWNKEEP_DATABASE_URL must be a postgres://, postgresql://, or jdbc:postgresql:// URL",
         )
     }
 
@@ -123,7 +123,7 @@ object DatabaseUrls {
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class DatabaseUrlEnvironmentPostProcessor : EnvironmentPostProcessor {
     override fun postProcessEnvironment(environment: ConfigurableEnvironment, application: SpringApplication) {
-        val raw = environment.getProperty("OPENKEEP_DATABASE_URL")
+        val raw = environment.getProperty("OWNKEEP_DATABASE_URL")
             ?: environment.getProperty("spring.datasource.url")
             ?: return
         if (raw.isBlank()) return
@@ -132,23 +132,23 @@ class DatabaseUrlEnvironmentPostProcessor : EnvironmentPostProcessor {
             DatabaseUrls.parse(raw)
         } catch (ex: IllegalArgumentException) {
             throw IllegalStateException(
-                "Invalid database URL (OPENKEEP_DATABASE_URL / spring.datasource.url): ${ex.message}",
+                "Invalid database URL (OWNKEEP_DATABASE_URL / spring.datasource.url): ${ex.message}",
                 ex,
             )
         }
 
         val props = linkedMapOf<String, Any>(
             "spring.datasource.url" to parsed.jdbcUrl,
-            "OPENKEEP_DATABASE_URL" to parsed.jdbcUrl,
+            "OWNKEEP_DATABASE_URL" to parsed.jdbcUrl,
         )
         parsed.username?.let {
             props["spring.datasource.username"] = it
-            props["OPENKEEP_DATABASE_USER"] = it
+            props["OWNKEEP_DATABASE_USER"] = it
         }
         parsed.password?.let {
             props["spring.datasource.password"] = it
-            props["OPENKEEP_DATABASE_PASSWORD"] = it
+            props["OWNKEEP_DATABASE_PASSWORD"] = it
         }
-        environment.propertySources.addFirst(MapPropertySource("openkeepDatabaseUrl", props))
+        environment.propertySources.addFirst(MapPropertySource("ownkeepDatabaseUrl", props))
     }
 }

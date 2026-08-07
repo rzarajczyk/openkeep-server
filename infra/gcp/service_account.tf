@@ -1,6 +1,6 @@
 resource "google_service_account" "runtime" {
-  account_id   = "openkeep-run"
-  display_name = "OpenKeep Cloud Run runtime"
+  account_id   = "ownkeep-run"
+  display_name = "OwnKeep Cloud Run runtime"
   depends_on   = [google_project_service.required]
 }
 
@@ -11,7 +11,7 @@ resource "google_storage_bucket_iam_member" "runtime_objects" {
 }
 
 resource "google_secret_manager_secret_iam_member" "runtime_accessor" {
-  for_each = google_secret_manager_secret.openkeep
+  for_each = google_secret_manager_secret.ownkeep
 
   secret_id = each.value.id
   role      = "roles/secretmanager.secretAccessor"
@@ -19,8 +19,8 @@ resource "google_secret_manager_secret_iam_member" "runtime_accessor" {
 }
 
 resource "google_service_account" "deploy" {
-  account_id   = "openkeep-gha-deploy"
-  display_name = "OpenKeep GitHub Actions deploy"
+  account_id   = "ownkeep-gha-deploy"
+  display_name = "OwnKeep GitHub Actions deploy"
   depends_on   = [google_project_service.required]
 }
 

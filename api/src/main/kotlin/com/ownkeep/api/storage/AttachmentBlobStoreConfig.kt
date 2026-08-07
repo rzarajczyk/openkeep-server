@@ -1,7 +1,7 @@
-package com.openkeep.api.storage
+package com.ownkeep.api.storage
 
 import com.google.cloud.storage.StorageOptions
-import com.openkeep.api.OpenKeepProperties
+import com.ownkeep.api.OwnKeepProperties
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -10,20 +10,20 @@ import org.springframework.context.annotation.Configuration
 class AttachmentBlobStoreConfig {
     @Bean
     @ConditionalOnProperty(
-        prefix = "openkeep.attachment",
+        prefix = "ownkeep.attachment",
         name = ["storage"],
         havingValue = "filesystem",
         matchIfMissing = true,
     )
-    fun filesystemAttachmentBlobStore(properties: OpenKeepProperties): AttachmentBlobStore =
+    fun filesystemAttachmentBlobStore(properties: OwnKeepProperties): AttachmentBlobStore =
         FilesystemAttachmentBlobStore(properties.attachment.storageRoot)
 
     @Bean
-    @ConditionalOnProperty(prefix = "openkeep.attachment", name = ["storage"], havingValue = "gcs")
-    fun gcsAttachmentBlobStore(properties: OpenKeepProperties): AttachmentBlobStore {
+    @ConditionalOnProperty(prefix = "ownkeep.attachment", name = ["storage"], havingValue = "gcs")
+    fun gcsAttachmentBlobStore(properties: OwnKeepProperties): AttachmentBlobStore {
         val bucket = properties.attachment.gcs.bucket.trim()
         require(bucket.isNotEmpty()) {
-            "openkeep.attachment.gcs.bucket (OPENKEEP_ATTACHMENT_GCS_BUCKET) is required when storage=gcs"
+            "ownkeep.attachment.gcs.bucket (OWNKEEP_ATTACHMENT_GCS_BUCKET) is required when storage=gcs"
         }
         val storage = StorageOptions.getDefaultInstance().service
         return GcsAttachmentBlobStore(

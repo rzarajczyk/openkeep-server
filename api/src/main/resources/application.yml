@@ -1,12 +1,12 @@
 spring:
   application:
-    name: openkeep-api
+    name: ownkeep-api
   datasource:
-    # Prefer a single OPENKEEP_DATABASE_URL (Neon postgres:// or JDBC).
+    # Prefer a single OWNKEEP_DATABASE_URL (Neon postgres:// or JDBC).
     # DatabaseUrlEnvironmentPostProcessor extracts user/password when embedded.
-    url: ${OPENKEEP_DATABASE_URL:jdbc:postgresql://localhost:5432/openkeep}
-    username: ${OPENKEEP_DATABASE_USER:openkeep}
-    password: ${OPENKEEP_DATABASE_PASSWORD:openkeep}
+    url: ${OWNKEEP_DATABASE_URL:jdbc:postgresql://localhost:5432/ownkeep}
+    username: ${OWNKEEP_DATABASE_USER:ownkeep}
+    password: ${OWNKEEP_DATABASE_PASSWORD:ownkeep}
   jpa:
     open-in-view: false
     hibernate:
@@ -19,8 +19,8 @@ spring:
     enabled: true
   servlet:
     multipart:
-      max-file-size: ${OPENKEEP_MULTIPART_MAX_FILE_SIZE:100MB}
-      max-request-size: ${OPENKEEP_MULTIPART_MAX_REQUEST_SIZE:101MB}
+      max-file-size: ${OWNKEEP_MULTIPART_MAX_FILE_SIZE:100MB}
+      max-request-size: ${OWNKEEP_MULTIPART_MAX_REQUEST_SIZE:101MB}
       file-size-threshold: 0
   jackson:
     default-property-inclusion: non_null
@@ -46,26 +46,26 @@ springdoc:
   swagger-ui:
     enabled: false
 
-openkeep:
-  admin-username: ${OPENKEEP_ADMIN_USERNAME:}
-  admin-password: ${OPENKEEP_ADMIN_PASSWORD:}
-  token-ttl: ${OPENKEEP_TOKEN_TTL:30d}
-  max-sync-limit: ${OPENKEEP_MAX_SYNC_LIMIT:200}
+ownkeep:
+  admin-username: ${OWNKEEP_ADMIN_USERNAME:}
+  admin-password: ${OWNKEEP_ADMIN_PASSWORD:}
+  token-ttl: ${OWNKEEP_TOKEN_TTL:30d}
+  max-sync-limit: ${OWNKEEP_MAX_SYNC_LIMIT:200}
   login-rate-limit:
-    max-attempts-per-ip: ${OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_IP:10}
-    max-attempts-per-login: ${OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_LOGIN:5}
-    window: ${OPENKEEP_LOGIN_RATE_LIMIT_WINDOW:1m}
+    max-attempts-per-ip: ${OWNKEEP_LOGIN_MAX_ATTEMPTS_PER_IP:10}
+    max-attempts-per-login: ${OWNKEEP_LOGIN_MAX_ATTEMPTS_PER_LOGIN:5}
+    window: ${OWNKEEP_LOGIN_RATE_LIMIT_WINDOW:1m}
   attachment:
-    storage: ${OPENKEEP_ATTACHMENT_STORAGE:filesystem}
-    storage-root: ${OPENKEEP_ATTACHMENT_STORAGE_ROOT:./data/attachments}
-    max-file-size: ${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:26214400}
-    per-user-quota: ${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:1073741824}
+    storage: ${OWNKEEP_ATTACHMENT_STORAGE:filesystem}
+    storage-root: ${OWNKEEP_ATTACHMENT_STORAGE_ROOT:./data/attachments}
+    max-file-size: ${OWNKEEP_ATTACHMENT_MAX_FILE_SIZE:26214400}
+    per-user-quota: ${OWNKEEP_ATTACHMENT_PER_USER_QUOTA:1073741824}
     gcs:
-      bucket: ${OPENKEEP_ATTACHMENT_GCS_BUCKET:}
-      prefix: ${OPENKEEP_ATTACHMENT_GCS_PREFIX:}
+      bucket: ${OWNKEEP_ATTACHMENT_GCS_BUCKET:}
+      prefix: ${OWNKEEP_ATTACHMENT_GCS_PREFIX:}
   takeout-import:
-    max-upload-size: ${OPENKEEP_IMPORT_MAX_UPLOAD_SIZE:104857600}
-    max-entries: ${OPENKEEP_IMPORT_MAX_ENTRIES:5000}
-    max-entry-size: ${OPENKEEP_IMPORT_MAX_ENTRY_SIZE:52428800}
-    max-uncompressed-size: ${OPENKEEP_IMPORT_MAX_UNCOMPRESSED_SIZE:524288000}
-    max-warnings: ${OPENKEEP_IMPORT_MAX_WARNINGS:100}
+    max-upload-size: ${OWNKEEP_IMPORT_MAX_UPLOAD_SIZE:104857600}
+    max-entries: ${OWNKEEP_IMPORT_MAX_ENTRIES:5000}
+    max-entry-size: ${OWNKEEP_IMPORT_MAX_ENTRY_SIZE:52428800}
+    max-uncompressed-size: ${OWNKEEP_IMPORT_MAX_UNCOMPRESSED_SIZE:524288000}
+    max-warnings: ${OWNKEEP_IMPORT_MAX_WARNINGS:100}

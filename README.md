@@ -1,4 +1,4 @@
-# OpenKeep
+# OwnKeep
 
 Self-hosted notes app — text and checklist notes, labels, pinning, attachments, search, Google Keep import, and multi-user accounts. A small Google Keep-style alternative you run with Docker.
 
@@ -14,11 +14,11 @@ docker compose up -d --build
 open http://localhost:8080
 ```
 
-Accounts: set `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` in `.env` to bootstrap the first admin; manage other users in the app. Never commit `.env`.
+Accounts: set `OWNKEEP_ADMIN_USERNAME` / `OWNKEEP_ADMIN_PASSWORD` in `.env` to bootstrap the first admin; manage other users in the app. Never commit `.env`.
 
-Database config is a single `OPENKEEP_DATABASE_URL` (Neon-style `postgresql://user:pass@host/db`). Older `POSTGRES_*` variables are no longer read — see [.env.example](.env.example).
+Database config is a single `OWNKEEP_DATABASE_URL` (Neon-style `postgresql://user:pass@host/db`). Older `POSTGRES_*` variables are no longer read — see [.env.example](.env.example).
 
-The Compose stack builds one image (`openkeep:latest`) from the root [Dockerfile](Dockerfile): the SPA is embedded in the API JAR and served by Spring on port 8080. Postgres stays a separate `db` service.
+The Compose stack builds one image (`ownkeep:latest`) from the root [Dockerfile](Dockerfile): the SPA is embedded in the API JAR and served by Spring on port 8080. Postgres stays a separate `db` service.
 
 ## Development
 
@@ -44,7 +44,7 @@ docker compose down          # keeps data volumes
 
 ## Documentation
 
-- [Application specification](openkeep-spec.md) — product scope, data model, API, and UI behavior
+- [Application specification](ownkeep-spec.md) — product scope, data model, API, and UI behavior
 - [OpenMediaVault deployment](README_OMV.md) — OMV Compose stack with public images
 - [GCP / Cloud Run (OpenTofu)](infra/gcp/README.md) — GCS, Cloud Run, GitHub Actions deploy
 - [API notes](api/README.md)
@@ -52,7 +52,7 @@ docker compose down          # keeps data volumes
 
 ## Image publishing
 
-CI on `main` builds and pushes the unified Docker Hub image `rzarajczyk/openkeep` (plus a timestamp tag). Separate `openkeep-api` / `openkeep-web` image publishes are paused; the OMV/NAS dual-image stack in [README_OMV.md](README_OMV.md) continues to use the last published dual tags until that stack is migrated.
+CI on `main` builds and pushes the unified Docker Hub image `rzarajczyk/ownkeep` (plus a timestamp tag). Separate `ownkeep-api` / `ownkeep-web` image publishes are paused; the OMV/NAS dual-image stack in [README_OMV.md](README_OMV.md) continues to use the last published dual tags until that stack is migrated.
 
 ## Security
 
@@ -60,5 +60,5 @@ CI on `main` builds and pushes the unified Docker Hub image `rzarajczyk/openkeep
 - On first unlock, each user receives a **recovery key** — store it offline. Admin password reset clears the password wrap; recovery is required to regain vault access
 - V5 schema migration wipes existing note/attachment rows (dev cutover). Clear the attachment volume when upgrading from pre-ZK builds
 - Configure secrets only in `.env` (see `.env.example`)
-- Use HTTPS and a reverse proxy in production; bind `OPENKEEP_PORT=127.0.0.1:8080` if the proxy runs on the same host
+- Use HTTPS and a reverse proxy in production; bind `OWNKEEP_PORT=127.0.0.1:8080` if the proxy runs on the same host
 - Rotate any credential that was ever committed or shared

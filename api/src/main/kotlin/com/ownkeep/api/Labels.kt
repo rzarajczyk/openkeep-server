@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank

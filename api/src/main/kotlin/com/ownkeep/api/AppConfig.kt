@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Bean
@@ -15,8 +15,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import java.nio.file.Path
 import java.time.Duration
 
-@ConfigurationProperties("openkeep")
-data class OpenKeepProperties(
+@ConfigurationProperties("ownkeep")
+data class OwnKeepProperties(
     var adminUsername: String = "",
     var adminPassword: String = "",
     var tokenTtl: Duration = Duration.ofDays(30),
@@ -65,7 +65,7 @@ class AppConfig {
     fun passwordEncoder(): PasswordEncoder = BCryptPasswordEncoder(12)
 
     @Bean
-    fun loginRateLimiter(properties: OpenKeepProperties) = LoginRateLimiter(properties)
+    fun loginRateLimiter(properties: OwnKeepProperties) = LoginRateLimiter(properties)
 
     @Bean
     fun securityFilterChain(

@@ -1,6 +1,6 @@
-package com.openkeep.api
+package com.ownkeep.api
 
-import com.openkeep.api.storage.AttachmentBlobStore
+import com.ownkeep.api.storage.AttachmentBlobStore
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
@@ -90,7 +90,7 @@ class NoteService(
     private val noteLabelRepository: NoteLabelRepository,
     private val attachmentRepository: AttachmentRepository,
     private val attachmentBlobStore: AttachmentBlobStore,
-    private val properties: OpenKeepProperties,
+    private val properties: OwnKeepProperties,
 ) {
     @Transactional
     fun create(userId: Long, request: CreateNoteRequest): NoteResponse {
@@ -294,4 +294,4 @@ class NoteController(private val noteService: NoteService) {
 }
 
 fun principal(authentication: UsernamePasswordAuthenticationToken) =
-    authentication.principal as OpenKeepPrincipal
+    authentication.principal as OwnKeepPrincipal

@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -40,8 +40,8 @@ class CoreUnitTests {
         var now = Instant.parse("2026-01-01T00:00:00Z")
         val clock = Clock.fixed(now, ZoneOffset.UTC)
         val limiter = LoginRateLimiter(
-            OpenKeepProperties(
-                loginRateLimit = OpenKeepProperties.LoginRateLimitProperties(
+            OwnKeepProperties(
+                loginRateLimit = OwnKeepProperties.LoginRateLimitProperties(
                     maxAttemptsPerIp = 3,
                     maxAttemptsPerLogin = 100,
                     window = Duration.ofMinutes(1),

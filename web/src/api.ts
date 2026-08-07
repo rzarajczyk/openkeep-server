@@ -56,7 +56,7 @@ class ApiClient {
       response = await fetch(`${API_PREFIX}${path}`, { ...init, headers })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error
-      throw new ApiError('Unable to reach OpenKeep. Check your connection.', 0, error)
+      throw new ApiError('Unable to reach OwnKeep. Check your connection.', 0, error)
     }
 
     if (response.status === 401 && authenticated) {

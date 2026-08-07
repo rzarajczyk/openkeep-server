@@ -1,4 +1,4 @@
-package com.openkeep.api.storage
+package com.ownkeep.api.storage
 
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy

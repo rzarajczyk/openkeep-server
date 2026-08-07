@@ -117,9 +117,9 @@ jobs:
       - name: Deploy to Cloud Run
         if: ${{ steps.auth.outcome == 'success' }}
         run: |
-          PROJECT_ID="${GCP_PROJECT_ID:-openkeep-504806}"
+          PROJECT_ID="${GCP_PROJECT_ID:-ownkeep-net}"
           REGION="${GCP_REGION:-europe-west1}"
-          gcloud run services update openkeep \
+          gcloud run services update ownkeep \
             --project="$PROJECT_ID" \
             --region="$REGION" \
             --image="${{ steps.docker.outputs.deploy_image }}"

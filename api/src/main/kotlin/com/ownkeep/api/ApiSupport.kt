@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.persistence.OptimisticLockException

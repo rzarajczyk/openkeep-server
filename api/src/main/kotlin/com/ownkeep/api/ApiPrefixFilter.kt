@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest

@@ -4,7 +4,7 @@
 !.env.example
 *.local
 
-# OpenKeep runtime data
+# OwnKeep runtime data
 /attachments/
 /data/
 /backups/

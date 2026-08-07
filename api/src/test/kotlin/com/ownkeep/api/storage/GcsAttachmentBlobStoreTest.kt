@@ -1,4 +1,4 @@
-package com.openkeep.api.storage
+package com.ownkeep.api.storage
 
 import com.google.cloud.ReadChannel
 import com.google.cloud.WriteChannel
@@ -24,8 +24,8 @@ import java.nio.ByteBuffer
 class GcsAttachmentBlobStoreTest {
     @Test
     fun `objectName applies prefix`() {
-        val store = GcsAttachmentBlobStore(mock(), bucket = "b", prefix = "openkeep")
-        assertThat(store.objectName("1/n/a")).isEqualTo("openkeep/1/n/a")
+        val store = GcsAttachmentBlobStore(mock(), bucket = "b", prefix = "ownkeep")
+        assertThat(store.objectName("1/n/a")).isEqualTo("ownkeep/1/n/a")
     }
 
     @Test

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply OpenKeep GCP infra from repo-root .env (Neon + admin secrets).
+# Apply OwnKeep GCP infra from repo-root .env (Neon + admin secrets).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -55,17 +55,17 @@ if raw.startswith("jdbc:"):
     raw = raw[len("jdbc:"):]
 
 if not (raw.startswith("postgres://") or raw.startswith("postgresql://")):
-    raise SystemExit("OPENKEEP_DATABASE_URL must be postgres://, postgresql://, or jdbc:postgresql://")
+    raise SystemExit("OWNKEEP_DATABASE_URL must be postgres://, postgresql://, or jdbc:postgresql://")
 
 u = urlparse(raw)
 if not u.hostname:
-    raise SystemExit("OPENKEEP_DATABASE_URL is missing a host")
+    raise SystemExit("OWNKEEP_DATABASE_URL is missing a host")
 user = unquote(u.username or "")
 password = unquote(u.password or "")
 if not user or password is None or password == "":
-    raise SystemExit("OPENKEEP_DATABASE_URL must include user:password@")
+    raise SystemExit("OWNKEEP_DATABASE_URL must include user:password@")
 
-path = u.path or "/openkeep"
+path = u.path or "/ownkeep"
 params = dict(parse_qsl(u.query, keep_blank_values=True))
 # JDBC uses channelBinding; Neon libpq URIs use channel_binding.
 if "channel_binding" in params and "channelBinding" not in params:
@@ -97,15 +97,15 @@ load_env_file "$ENV_FILE"
 
 PROJECT_ID="${GCP_PROJECT_ID:-}"
 REGION="${GCP_REGION:-}"
-IMAGE="${OPENKEEP_IMAGE:-docker.io/rzarajczyk/openkeep:latest}"
+IMAGE="${OWNKEEP_IMAGE:-docker.io/rzarajczyk/ownkeep:latest}"
 
 [[ -n "$PROJECT_ID" ]] || die "GCP_PROJECT_ID is required in $ENV_FILE"
 [[ -n "$REGION" ]] || die "GCP_REGION is required in $ENV_FILE"
-require_non_placeholder OPENKEEP_DATABASE_URL
-require_non_placeholder OPENKEEP_ADMIN_USERNAME
-require_non_placeholder OPENKEEP_ADMIN_PASSWORD
+require_non_placeholder OWNKEEP_DATABASE_URL
+require_non_placeholder OWNKEEP_ADMIN_USERNAME
+require_non_placeholder OWNKEEP_ADMIN_PASSWORD
 
-eval "$(parse_database_url "$OPENKEEP_DATABASE_URL")"
+eval "$(parse_database_url "$OWNKEEP_DATABASE_URL")"
 
 ACTIVE_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
 if [[ "$ACTIVE_PROJECT" != "$PROJECT_ID" ]]; then
@@ -118,8 +118,8 @@ export TF_VAR_image="$IMAGE"
 export TF_VAR_database_url="$PARSED_JDBC"
 export TF_VAR_database_user="$PARSED_USER"
 export TF_VAR_database_password="$PARSED_PASSWORD"
-export TF_VAR_admin_username="$OPENKEEP_ADMIN_USERNAME"
-export TF_VAR_admin_password="$OPENKEEP_ADMIN_PASSWORD"
+export TF_VAR_admin_username="$OWNKEEP_ADMIN_USERNAME"
+export TF_VAR_admin_password="$OWNKEEP_ADMIN_PASSWORD"
 
 cd "$INFRA_DIR"
 

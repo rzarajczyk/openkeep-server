@@ -1,4 +1,4 @@
-package com.openkeep.api
+package com.ownkeep.api
 
 import jakarta.persistence.LockModeType
 import org.springframework.data.domain.Pageable
