@@ -38,11 +38,11 @@ Markdown for notes is rendered by `MarkdownService` in `Notes.kt`:
 - `OWNKEEP_LOGIN_MAX_ATTEMPTS_PER_IP` — max `/auth/login` attempts per client IP per window, default `10`
 - `OWNKEEP_LOGIN_MAX_ATTEMPTS_PER_LOGIN` — max `/auth/login` attempts per login name per window, default `5`
 - `OWNKEEP_LOGIN_RATE_LIMIT_WINDOW` — rate-limit window, default `1m`
-- `OWNKEEP_ATTACHMENT_STORAGE` — attachment blob backend: `filesystem` (default, NAS/Compose) or `gcs` (Cloud Run / GCP)
+- `OWNKEEP_ATTACHMENT_STORAGE` — attachment blob backend: `filesystem` (default, NAS/Compose) or `gcs`
 - `OWNKEEP_ATTACHMENT_STORAGE_ROOT` — local attachment directory when `storage=filesystem`, default `./data/attachments`
 - `OWNKEEP_ATTACHMENT_GCS_BUCKET` — GCS bucket name when `storage=gcs` (required)
 - `OWNKEEP_ATTACHMENT_GCS_PREFIX` — optional object key prefix inside the bucket (e.g. `ownkeep/`)
-- GCS auth uses Application Default Credentials (Cloud Run service account, `gcloud auth application-default login`, or `GOOGLE_APPLICATION_CREDENTIALS`)
+- GCS auth uses Application Default Credentials (`gcloud auth application-default login`, or `GOOGLE_APPLICATION_CREDENTIALS`)
 - `OWNKEEP_ATTACHMENT_MAX_FILE_SIZE` — application-level upload limit in bytes, default 25 MiB
 - `OWNKEEP_MULTIPART_MAX_FILE_SIZE` — servlet upload limit, default `25MB`
 - `OWNKEEP_ATTACHMENT_PER_USER_QUOTA` — per-user attachment quota in bytes, default 1 GiB

@@ -4,6 +4,9 @@
 !.env.example
 *.local
 
+# Private / machine-local tooling (OpenTofu, GCP ops, etc.)
+/private/
+
 # OwnKeep runtime data
 /attachments/
 /data/

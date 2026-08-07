@@ -46,7 +46,6 @@ docker compose down          # keeps data volumes
 
 - [Application specification](ownkeep-spec.md) — product scope, data model, API, and UI behavior
 - [OpenMediaVault deployment](README_OMV.md) — OMV Compose stack with public images
-- [GCP / Cloud Run (OpenTofu)](infra/gcp/README.md) — GCS, Cloud Run, GitHub Actions deploy
 - [API notes](api/README.md)
 - [Web client notes](web/README.md)
 

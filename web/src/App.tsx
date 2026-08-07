@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { api } from './api'
 import { AppShell } from './AppShell'
-import { Login } from './Login'
+import { Landing } from './Landing'
 import type { AuthSession, User } from './types'
 import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
 import { VaultSetup, VaultUnlock } from './vault/VaultGate'
@@ -149,7 +149,7 @@ function App() {
     )
   }
 
-  if (!session) return <Login onLogin={login} />
+  if (!session) return <Landing onLogin={login} />
 
   return (
     <VaultProvider>
