@@ -60,6 +60,12 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # secrets context cannot be used in if:; map to env first.
+    env:
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ secrets.GCP_REGION }}
     steps:
       - uses: actions/checkout@v4
 
@@ -97,12 +103,12 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Authenticate to Google Cloud
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.GCP_SERVICE_ACCOUNT != '' }}
+        if: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != '' }}
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         if: ${{ steps.auth.outcome == 'success' }}
@@ -110,9 +116,6 @@ jobs:
 
       - name: Deploy to Cloud Run
         if: ${{ steps.auth.outcome == 'success' }}
-        env:
-          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
           PROJECT_ID="${GCP_PROJECT_ID:-openkeep-504806}"
           REGION="${GCP_REGION:-europe-west1}"
