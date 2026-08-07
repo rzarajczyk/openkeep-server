@@ -1,32 +1,77 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
-const createdNote = {
-  id: 'note-1',
-  type: 'TEXT',
-  title: '',
-  contentRaw: '',
-  contentRendered: '',
-  backgroundColor: '#ffffff',
-  archived: false,
-  pinned: false,
-  labels: [],
-  createdAt: '2026-07-12T12:00:00Z',
-  updatedAt: '2026-07-12T12:00:00Z',
-  version: 1,
-  items: [],
-  attachments: [],
+const uninitializedVault = {
+  kdfSalt: null,
+  kdfParams: null,
+  wrappedVaultKey: null,
+  wrappedVaultKeyRecovery: null,
+  hasRecoveryKey: false,
+  initialized: false,
+  needsRecoveryUnlock: false,
 }
 
-test.beforeEach(async ({ page }) => {
+const demoUser = {
+  id: 1,
+  login: 'demo',
+  role: 'USER' as const,
+  vault: uninitializedVault,
+}
+
+async function mockApi(page: Page) {
+  let vault = { ...uninitializedVault }
+
   await page.route('**/api/auth/login', (route) =>
     route.fulfill({
       json: {
         token: 'smoke-token',
         expiresAt: '2099-01-01T00:00:00Z',
-        user: { id: 1, login: 'demo', role: 'USER' },
+        user: { ...demoUser, vault },
       },
     }),
   )
+
+  // Register /me before /me/vault so the more specific route wins (last match).
+  await page.route(/.*\/api\/me$/, async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue()
+      return
+    }
+    await route.fulfill({
+      json: { ...demoUser, vault },
+    })
+  })
+
+  await page.route('**/api/me/vault', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    const body = route.request().postDataJSON() as {
+      kdfSalt: string
+      kdfParams: typeof vault.kdfParams
+      wrappedVaultKey: string
+      wrappedVaultKeyRecovery: string
+    }
+    vault = {
+      kdfSalt: body.kdfSalt,
+      kdfParams: body.kdfParams,
+      wrappedVaultKey: body.wrappedVaultKey,
+      wrappedVaultKeyRecovery: body.wrappedVaultKeyRecovery,
+      hasRecoveryKey: true,
+      initialized: true,
+      needsRecoveryUnlock: false,
+    }
+    await route.fulfill({ json: vault })
+  })
+
+  await page.route('**/api/labels', (route) => {
+    if (route.request().method() === 'GET') {
+      void route.fulfill({ json: [] })
+      return
+    }
+    void route.continue()
+  })
+
   await page.route(/.*\/api\/notes\?.*/, (route) =>
     route.fulfill({
       json: {
@@ -38,20 +83,65 @@ test.beforeEach(async ({ page }) => {
       },
     }),
   )
+
   await page.route('**/api/notes', async (route) => {
-    if (route.request().method() === 'POST') {
-      await route.fulfill({ status: 200, json: createdNote })
-    } else {
+    if (route.request().method() !== 'POST') {
       await route.continue()
+      return
     }
-  })
-  await page.route('**/api/notes/note-1', async (route) => {
-    const payload = route.request().postDataJSON()
+    const payload = route.request().postDataJSON() as {
+      id: string
+      type: string
+      backgroundColor: string
+      archived: boolean
+      pinned: boolean
+      wrappedNoteKey: string
+      ciphertext: string
+      labelIds: string[]
+    }
     await route.fulfill({
       status: 200,
-      json: { ...createdNote, ...payload, version: 2 },
+      json: {
+        ...payload,
+        labelIds: payload.labelIds ?? [],
+        attachments: [],
+        createdAt: '2026-07-12T12:00:00Z',
+        updatedAt: '2026-07-12T12:00:00Z',
+        version: 1,
+      },
     })
   })
+
+  await page.route(/.*\/api\/notes\/[^/?]+$/, async (route) => {
+    const method = route.request().method()
+    if (method !== 'PATCH' && method !== 'GET') {
+      await route.continue()
+      return
+    }
+    const payload =
+      method === 'PATCH'
+        ? (route.request().postDataJSON() as Record<string, unknown>)
+        : {}
+    const url = route.request().url()
+    const id = decodeURIComponent(url.split('/').pop()!)
+    await route.fulfill({
+      status: 200,
+      json: {
+        id,
+        type: 'TEXT',
+        backgroundColor: '#ffffff',
+        archived: false,
+        pinned: false,
+        labelIds: [],
+        attachments: [],
+        createdAt: '2026-07-12T12:00:00Z',
+        updatedAt: '2026-07-12T12:00:01Z',
+        version: 2,
+        ...payload,
+      },
+    })
+  })
+
   await page.route('**/api/markdown/preview', async (route) => {
     const body = route.request().postDataJSON() as { markdown?: string }
     await route.fulfill({
@@ -59,6 +149,10 @@ test.beforeEach(async ({ page }) => {
       json: { html: body.markdown ? `<p>${body.markdown}</p>` : '' },
     })
   })
+}
+
+test.beforeEach(async ({ page }) => {
+  await mockApi(page)
 })
 
 test('signs in and creates a text note', async ({ page }) => {
@@ -66,6 +160,11 @@ test('signs in and creates a text note', async ({ page }) => {
   await page.getByLabel('Login').fill('demo')
   await page.getByLabel('Password').fill('password')
   await page.getByRole('button', { name: 'Sign in' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Save your recovery key' })).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.getByRole('button', { name: 'I saved it — continue' }).click()
 
   await expect(page.getByRole('heading', { name: 'Your notes' })).toBeVisible()
   await page.getByLabel('Create note').getByRole('button', { name: 'Add note' }).click()
