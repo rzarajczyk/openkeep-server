@@ -1,7 +1,7 @@
 variable "project_id" {
   description = "GCP project ID"
   type        = string
-  default     = "ownkeep-net"
+  default     = "openkeep-504806"
 }
 
 variable "region" {
@@ -54,7 +54,7 @@ variable "admin_password" {
 variable "service_name" {
   description = "Cloud Run service name"
   type        = string
-  default     = "ownkeep"
+  default     = "openkeep"
 }
 
 variable "cpu" {

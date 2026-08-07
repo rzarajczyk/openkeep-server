@@ -1,4 +1,4 @@
-resource "google_cloud_run_v2_service" "ownkeep" {
+resource "google_cloud_run_v2_service" "openkeep" {
   name                = var.service_name
   location            = var.region
   ingress             = "INGRESS_TRAFFIC_ALL"
@@ -68,7 +68,7 @@ resource "google_cloud_run_v2_service" "ownkeep" {
         name = "OWNKEEP_DATABASE_URL"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.ownkeep["database-url"].secret_id
+            secret  = google_secret_manager_secret.openkeep["database-url"].secret_id
             version = "latest"
           }
         }
@@ -78,7 +78,7 @@ resource "google_cloud_run_v2_service" "ownkeep" {
         name = "OWNKEEP_DATABASE_USER"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.ownkeep["database-user"].secret_id
+            secret  = google_secret_manager_secret.openkeep["database-user"].secret_id
             version = "latest"
           }
         }
@@ -88,7 +88,7 @@ resource "google_cloud_run_v2_service" "ownkeep" {
         name = "OWNKEEP_DATABASE_PASSWORD"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.ownkeep["database-password"].secret_id
+            secret  = google_secret_manager_secret.openkeep["database-password"].secret_id
             version = "latest"
           }
         }
@@ -98,7 +98,7 @@ resource "google_cloud_run_v2_service" "ownkeep" {
         name = "OWNKEEP_ADMIN_USERNAME"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.ownkeep["admin-username"].secret_id
+            secret  = google_secret_manager_secret.openkeep["admin-username"].secret_id
             version = "latest"
           }
         }
@@ -108,7 +108,7 @@ resource "google_cloud_run_v2_service" "ownkeep" {
         name = "OWNKEEP_ADMIN_PASSWORD"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.ownkeep["admin-password"].secret_id
+            secret  = google_secret_manager_secret.openkeep["admin-password"].secret_id
             version = "latest"
           }
         }
@@ -123,7 +123,7 @@ resource "google_cloud_run_v2_service" "ownkeep" {
 
   depends_on = [
     google_project_service.required,
-    google_secret_manager_secret_version.ownkeep,
+    google_secret_manager_secret_version.openkeep,
     google_secret_manager_secret_iam_member.runtime_accessor,
     google_storage_bucket_iam_member.runtime_objects,
   ]
@@ -139,9 +139,9 @@ resource "google_cloud_run_v2_service" "ownkeep" {
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
-  project  = google_cloud_run_v2_service.ownkeep.project
-  location = google_cloud_run_v2_service.ownkeep.location
-  name     = google_cloud_run_v2_service.ownkeep.name
+  project  = google_cloud_run_v2_service.openkeep.project
+  location = google_cloud_run_v2_service.openkeep.location
+  name     = google_cloud_run_v2_service.openkeep.name
   role     = "roles/run.invoker"
   member   = "allUsers"
 }

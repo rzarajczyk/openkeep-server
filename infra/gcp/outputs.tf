@@ -1,6 +1,6 @@
 output "cloud_run_url" {
   description = "HTTPS URL of the OwnKeep Cloud Run service"
-  value       = google_cloud_run_v2_service.ownkeep.uri
+  value       = google_cloud_run_v2_service.openkeep.uri
 }
 
 output "attachments_bucket" {
@@ -31,7 +31,7 @@ output "region" {
 }
 
 output "service_name" {
-  value = google_cloud_run_v2_service.ownkeep.name
+  value = google_cloud_run_v2_service.openkeep.name
 }
 
 output "github_actions_secrets" {
