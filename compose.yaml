@@ -10,9 +10,7 @@ services:
     ports:
       - "${OPENKEEP_PORT:-8080}:8080"
     environment:
-      SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/${POSTGRES_DB:-openkeep}"
-      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-openkeep}"
-      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      OPENKEEP_DATABASE_URL: "${OPENKEEP_DATABASE_URL:?Set OPENKEEP_DATABASE_URL in .env}"
       SPRING_JPA_OPEN_IN_VIEW: "false"
       SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: "${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:-26214400}B"
       SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: "${OPENKEEP_MULTIPART_MAX_REQUEST_SIZE:-27262976}B"
@@ -52,11 +50,11 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: "${POSTGRES_DB:-openkeep}"
-      POSTGRES_USER: "${POSTGRES_USER:-openkeep}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      OPENKEEP_DATABASE_URL: "${OPENKEEP_DATABASE_URL:?Set OPENKEEP_DATABASE_URL in .env}"
     volumes:
       - postgres:/var/lib/postgresql
+      - ./docker/postgres-entrypoint.sh:/postgres-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/postgres-entrypoint.sh"]
     healthcheck:
       test:
         [

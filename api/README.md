@@ -12,10 +12,10 @@ export OPENKEEP_ADMIN_PASSWORD=change-this-password
 ./gradlew bootRun
 ```
 
-The default database is `jdbc:postgresql://localhost:5432/openkeep` with username and password
-`openkeep`. Override it with `OPENKEEP_DATABASE_URL`, `OPENKEEP_DATABASE_USER`, and
-`OPENKEEP_DATABASE_PASSWORD`, or the standard Spring Boot variables `SPRING_DATASOURCE_URL`,
-`SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` (used by `compose.yaml`).
+Set `OPENKEEP_DATABASE_URL` to a Neon-style connection string
+(`postgresql://user:pass@host/db?sslmode=require`) or a JDBC URL. User and password embedded
+in the URI are applied automatically. Defaults for local `bootRun` remain
+`jdbc:postgresql://localhost:5432/openkeep` / `openkeep` / `openkeep` when unset.
 
 The API listens on port 8080. OpenAPI is available at `/openapi.json` and health at `/health`.
 When the SPA is bundled (unified Docker image), the same endpoints are also reachable

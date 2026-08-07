@@ -2,6 +2,8 @@ spring:
   application:
     name: openkeep-api
   datasource:
+    # Prefer a single OPENKEEP_DATABASE_URL (Neon postgres:// or JDBC).
+    # DatabaseUrlEnvironmentPostProcessor extracts user/password when embedded.
     url: ${OPENKEEP_DATABASE_URL:jdbc:postgresql://localhost:5432/openkeep}
     username: ${OPENKEEP_DATABASE_USER:openkeep}
     password: ${OPENKEEP_DATABASE_PASSWORD:openkeep}

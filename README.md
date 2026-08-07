@@ -16,6 +16,8 @@ open http://localhost:8080
 
 Accounts: set `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` in `.env` to bootstrap the first admin; manage other users in the app. Never commit `.env`.
 
+Database config is a single `OPENKEEP_DATABASE_URL` (Neon-style `postgresql://user:pass@host/db`). Older `POSTGRES_*` variables are no longer read — see [.env.example](.env.example).
+
 The Compose stack builds one image (`openkeep:latest`) from the root [Dockerfile](Dockerfile): the SPA is embedded in the API JAR and served by Spring on port 8080. Postgres stays a separate `db` service.
 
 ## Development
@@ -44,6 +46,7 @@ docker compose down          # keeps data volumes
 
 - [Application specification](openkeep-spec.md) — product scope, data model, API, and UI behavior
 - [OpenMediaVault deployment](README_OMV.md) — OMV Compose stack with public images
+- [GCP / Cloud Run (OpenTofu)](infra/gcp/README.md) — GCS, Cloud Run, GitHub Actions deploy
 - [API notes](api/README.md)
 - [Web client notes](web/README.md)
 
