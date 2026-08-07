@@ -54,9 +54,13 @@ openkeep:
     max-attempts-per-login: ${OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_LOGIN:5}
     window: ${OPENKEEP_LOGIN_RATE_LIMIT_WINDOW:1m}
   attachment:
+    storage: ${OPENKEEP_ATTACHMENT_STORAGE:filesystem}
     storage-root: ${OPENKEEP_ATTACHMENT_STORAGE_ROOT:./data/attachments}
     max-file-size: ${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:26214400}
     per-user-quota: ${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:1073741824}
+    gcs:
+      bucket: ${OPENKEEP_ATTACHMENT_GCS_BUCKET:}
+      prefix: ${OPENKEEP_ATTACHMENT_GCS_PREFIX:}
   takeout-import:
     max-upload-size: ${OPENKEEP_IMPORT_MAX_UPLOAD_SIZE:104857600}
     max-entries: ${OPENKEEP_IMPORT_MAX_ENTRIES:5000}

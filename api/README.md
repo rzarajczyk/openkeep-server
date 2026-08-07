@@ -18,6 +18,8 @@ The default database is `jdbc:postgresql://localhost:5432/openkeep` with usernam
 `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` (used by `compose.yaml`).
 
 The API listens on port 8080. OpenAPI is available at `/openapi.json` and health at `/health`.
+When the SPA is bundled (unified Docker image), the same endpoints are also reachable
+under `/api/...` — Spring strips the `/api` prefix before routing.
 
 Markdown for notes is rendered by `MarkdownService` in `Notes.kt`:
 
@@ -36,7 +38,11 @@ Markdown for notes is rendered by `MarkdownService` in `Notes.kt`:
 - `OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_IP` — max `/auth/login` attempts per client IP per window, default `10`
 - `OPENKEEP_LOGIN_MAX_ATTEMPTS_PER_LOGIN` — max `/auth/login` attempts per login name per window, default `5`
 - `OPENKEEP_LOGIN_RATE_LIMIT_WINDOW` — rate-limit window, default `1m`
-- `OPENKEEP_ATTACHMENT_STORAGE_ROOT` — attachment volume path, default `./data/attachments`
+- `OPENKEEP_ATTACHMENT_STORAGE` — attachment blob backend: `filesystem` (default, NAS/Compose) or `gcs` (Cloud Run / GCP)
+- `OPENKEEP_ATTACHMENT_STORAGE_ROOT` — local attachment directory when `storage=filesystem`, default `./data/attachments`
+- `OPENKEEP_ATTACHMENT_GCS_BUCKET` — GCS bucket name when `storage=gcs` (required)
+- `OPENKEEP_ATTACHMENT_GCS_PREFIX` — optional object key prefix inside the bucket (e.g. `openkeep/`)
+- GCS auth uses Application Default Credentials (Cloud Run service account, `gcloud auth application-default login`, or `GOOGLE_APPLICATION_CREDENTIALS`)
 - `OPENKEEP_ATTACHMENT_MAX_FILE_SIZE` — application-level upload limit in bytes, default 25 MiB
 - `OPENKEEP_MULTIPART_MAX_FILE_SIZE` — servlet upload limit, default `25MB`
 - `OPENKEEP_ATTACHMENT_PER_USER_QUOTA` — per-user attachment quota in bytes, default 1 GiB
@@ -47,6 +53,12 @@ Markdown for notes is rendered by `MarkdownService` in `Notes.kt`:
 - `OPENKEEP_IMPORT_MAX_WARNINGS` — max stored import warnings, default `100`
 
 Takeout ZIP extraction stages under `<attachment-storage-root>/.imports` by default. To override, set `openkeep.takeout-import.staging-root` (for example `OPENKEEP_TAKEOUT_IMPORT_STAGING_ROOT`).
+
+## Container
+
+Production uses the unified root [Dockerfile](../Dockerfile) (SPA + API). The
+standalone [Dockerfile](Dockerfile) remains for the OMV dual-image stack until
+that deploy is migrated.
 
 Run verification with `./gradlew clean test bootJar`. Database integration tests use
 Testcontainers and are skipped automatically only when Docker is unavailable.

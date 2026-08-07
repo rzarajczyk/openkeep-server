@@ -1,3 +1,5 @@
 .gradle/
 build/
 data/
+# Built SPA copied here by the unified root Dockerfile / local packaging.
+src/main/resources/static/

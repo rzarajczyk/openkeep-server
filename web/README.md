@@ -35,5 +35,9 @@ npm run test:e2e
 
 ## Container
 
-The multi-stage Docker image builds the SPA and serves it with unprivileged nginx
-on port `8080`. Requests under `/api/` are proxied to `http://api:8080/`.
+Production uses the **unified** root [Dockerfile](../Dockerfile): the SPA is built
+and copied into the Spring Boot JAR (`classpath:/static`). Spring strips the
+`/api` prefix (same as this Vite proxy) and serves the UI and API on port `8080`.
+
+The standalone [Dockerfile](Dockerfile) (nginx + `/api` proxy to hostname `api`)
+remains for the existing OMV dual-image stack until that deploy is migrated.

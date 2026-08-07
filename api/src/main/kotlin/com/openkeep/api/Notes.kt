@@ -1,5 +1,6 @@
 package com.openkeep.api
 
+import com.openkeep.api.storage.AttachmentBlobStore
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
@@ -88,7 +89,7 @@ class NoteService(
     private val labelRepository: LabelRepository,
     private val noteLabelRepository: NoteLabelRepository,
     private val attachmentRepository: AttachmentRepository,
-    private val attachmentStorage: AttachmentStorage,
+    private val attachmentBlobStore: AttachmentBlobStore,
     private val properties: OpenKeepProperties,
 ) {
     @Transactional
@@ -165,7 +166,7 @@ class NoteService(
         noteLabelRepository.deleteAllByNoteId(id)
         val attachments = attachmentRepository.findAllByNoteIdOrderByCreatedAtAscIdAsc(id)
         attachmentRepository.deleteAllByNoteId(id)
-        attachmentStorage.deleteAfterCommit(attachments.map { it.storagePath })
+        attachmentBlobStore.deleteAfterCommit(attachments.map { it.storagePath })
     }
 
     @Transactional(readOnly = true)

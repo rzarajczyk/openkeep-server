@@ -4,6 +4,10 @@ Run OpenKeep as an OMV Compose stack using the public web image and a bind-mount
 
 **Images:** `rzarajczyk/openkeep-web` · `rzarajczyk/openkeep-api` · `postgres:18-alpine`
 
+> **Note:** CI on `main` now publishes only the unified `rzarajczyk/openkeep` image.
+> This OMV dual-image stack is unchanged and keeps using the last published
+> `openkeep-web` / `openkeep-api` tags until the NAS deploy is migrated.
+
 Replace every `choose_a_strong_password` placeholder before deploying. Generate secrets with:
 
 ```sh

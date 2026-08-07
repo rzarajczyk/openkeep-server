@@ -53,7 +53,7 @@ jobs:
         run: npm run test:e2e
 
   docker:
-    name: Docker images
+    name: Docker image
     needs: [api-tests, web-tests]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -64,8 +64,6 @@ jobs:
         run: |
           APP_NAME=$(grep -E '^name:' compose.yaml | awk '{print $2}')
           echo "APP_NAME=${APP_NAME}" >> "$GITHUB_ENV"
-          echo "API_IMAGE=${APP_NAME}-api" >> "$GITHUB_ENV"
-          echo "WEB_IMAGE=${APP_NAME}-web" >> "$GITHUB_ENV"
           echo "TAG_NOW=$(date +'%Y-%m-%d-%H-%M-%S')" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
@@ -80,25 +78,14 @@ jobs:
       - name: Prepare image tags
         id: docker
         run: |
-          echo "api_tags=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ env.API_IMAGE }}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
-          echo "web_tags=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ env.WEB_IMAGE }}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
+          echo "tags=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push API image
+      - name: Build and push unified image
         uses: docker/build-push-action@v6
         with:
-          context: ./api
+          context: .
           push: true
-          tags: ${{ steps.docker.outputs.api_tags }}
-          platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push web image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./web
-          push: true
-          tags: ${{ steps.docker.outputs.web_tags }}
+          tags: ${{ steps.docker.outputs.tags }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max

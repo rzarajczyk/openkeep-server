@@ -304,6 +304,21 @@ class OpenKeepIntegrationTest {
         assertThat(userRepository.findByLogin("bob")!!.wrappedVaultKey).isNotNull()
     }
 
+    @Test
+    fun `api prefix is stripped for health and login`() {
+        mockMvc.perform(get("/api/health"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.status").value("UP"))
+
+        mockMvc.perform(
+            post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"login":"alice","password":"alice-password"}"""),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.token").isString)
+    }
+
     private fun login(login: String, password: String): String {
         val result = mockMvc.perform(
             post("/auth/login")

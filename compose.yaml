@@ -1,45 +1,14 @@
 name: openkeep
 
 services:
-  web:
+  app:
     build:
-      context: ./web
-    image: openkeep-web:latest
+      context: .
+    image: openkeep:latest
     restart: unless-stopped
     init: true
     ports:
       - "${OPENKEEP_PORT:-8080}:8080"
-    depends_on:
-      api:
-        condition: service_healthy
-        restart: true
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -q --spider http://127.0.0.1:8080/ || exit 1",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    security_opt:
-      - no-new-privileges:true
-    networks:
-      - edge
-      - backend
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
-
-  api:
-    build:
-      context: ./api
-    image: openkeep-api:latest
-    restart: unless-stopped
-    init: true
     environment:
       SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/${POSTGRES_DB:-openkeep}"
       SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-openkeep}"
@@ -54,8 +23,6 @@ services:
       OPENKEEP_ATTACHMENT_STORAGE_ROOT: /data/attachments
       OPENKEEP_ATTACHMENT_MAX_FILE_SIZE: "${OPENKEEP_ATTACHMENT_MAX_FILE_SIZE:-26214400}"
       OPENKEEP_ATTACHMENT_PER_USER_QUOTA: "${OPENKEEP_ATTACHMENT_PER_USER_QUOTA:-1073741824}"
-    expose:
-      - "8080"
     volumes:
       - attachments:/data/attachments
     depends_on:
@@ -66,17 +33,15 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl --fail --silent http://127.0.0.1:8080/health > /dev/null || exit 1",
+          "curl --fail --silent http://127.0.0.1:8080/api/health > /dev/null || exit 1",
         ]
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 40s
     stop_grace_period: 30s
     security_opt:
       - no-new-privileges:true
-    networks:
-      - backend
     logging:
       driver: json-file
       options:
@@ -106,18 +71,11 @@ services:
     shm_size: 128mb
     security_opt:
       - no-new-privileges:true
-    networks:
-      - backend
     logging:
       driver: json-file
       options:
         max-size: 10m
         max-file: "3"
-
-networks:
-  edge:
-  backend:
-    internal: true
 
 volumes:
   postgres:

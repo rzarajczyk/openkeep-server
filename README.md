@@ -2,7 +2,7 @@
 
 Self-hosted notes app — text and checklist notes, labels, pinning, attachments, search, Google Keep import, and multi-user accounts. A small Google Keep-style alternative you run with Docker.
 
-**Stack:** React SPA (`web`) · Kotlin/Spring Boot API (`api`) · PostgreSQL (`db`)
+**Stack:** React SPA + Kotlin/Spring Boot API (single `app` image) · PostgreSQL (`db`)
 
 ## Quick start
 
@@ -16,6 +16,8 @@ open http://localhost:8080
 
 Accounts: set `OPENKEEP_ADMIN_USERNAME` / `OPENKEEP_ADMIN_PASSWORD` in `.env` to bootstrap the first admin; manage other users in the app. Never commit `.env`.
 
+The Compose stack builds one image (`openkeep:latest`) from the root [Dockerfile](Dockerfile): the SPA is embedded in the API JAR and served by Spring on port 8080. Postgres stays a separate `db` service.
+
 ## Development
 
 ```sh
@@ -25,13 +27,13 @@ cd api && ./gradlew bootRun
 cd web && npm ci && npm run dev
 ```
 
-The Vite dev server proxies `/api` to the API on port 8080, matching the production web container.
+The Vite dev server proxies `/api` to the API on port 8080 and strips the `/api` prefix. In the unified production image, Spring strips `/api` the same way.
 
 ## Useful commands
 
 ```sh
 docker compose ps
-docker compose logs -f web api db
+docker compose logs -f app db
 docker compose down          # keeps data volumes
 ```
 
@@ -44,6 +46,10 @@ docker compose down          # keeps data volumes
 - [OpenMediaVault deployment](README_OMV.md) — OMV Compose stack with public images
 - [API notes](api/README.md)
 - [Web client notes](web/README.md)
+
+## Image publishing
+
+CI on `main` builds and pushes the unified Docker Hub image `rzarajczyk/openkeep` (plus a timestamp tag). Separate `openkeep-api` / `openkeep-web` image publishes are paused; the OMV/NAS dual-image stack in [README_OMV.md](README_OMV.md) continues to use the last published dual tags until that stack is migrated.
 
 ## Security
 

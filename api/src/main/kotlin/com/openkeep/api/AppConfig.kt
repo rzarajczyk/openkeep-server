@@ -34,9 +34,17 @@ data class OpenKeepProperties(
     )
 
     data class AttachmentProperties(
+        /** filesystem (default) or gcs */
+        var storage: String = "filesystem",
         var storageRoot: Path = Path.of("./data/attachments"),
         var maxFileSize: Long = 25L * 1024 * 1024,
         var perUserQuota: Long = 1024L * 1024 * 1024,
+        var gcs: GcsAttachmentProperties = GcsAttachmentProperties(),
+    )
+
+    data class GcsAttachmentProperties(
+        var bucket: String = "",
+        var prefix: String = "",
     )
 
     data class TakeoutImportProperties(
@@ -76,6 +84,21 @@ class AppConfig {
             .authorizeHttpRequests {
                 it.requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
                 it.requestMatchers("/health", "/actuator/health", "/openapi.json").permitAll()
+                // SPA shell and Vite-hashed assets (unified image serves UI from Spring).
+                it.requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico").permitAll()
+                it.requestMatchers(
+                    HttpMethod.GET,
+                    "/*.js",
+                    "/*.css",
+                    "/*.map",
+                    "/*.svg",
+                    "/*.png",
+                    "/*.ico",
+                    "/*.webp",
+                    "/*.woff",
+                    "/*.woff2",
+                    "/*.ttf",
+                ).permitAll()
                 it.anyRequest().authenticated()
             }
             .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)
