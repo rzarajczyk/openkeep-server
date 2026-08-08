@@ -101,8 +101,12 @@ jobs:
         env:
           SAAS_DISPATCH_TOKEN: ${{ secrets.SAAS_DISPATCH_TOKEN }}
           CORE_IMAGE: docker.io/${{ steps.docker.outputs.image }}:${{ env.TAG_NOW }}
-        if: ${{ env.SAAS_DISPATCH_TOKEN != '' }}
         run: |
+          set -euo pipefail
+          if [ -z "${SAAS_DISPATCH_TOKEN}" ]; then
+            echo "::error::SAAS_DISPATCH_TOKEN secret is not configured; cannot trigger ownkeep-saas rebuild." >&2
+            exit 1
+          fi
           GH_TOKEN="$SAAS_DISPATCH_TOKEN" gh api --method POST repos/rzarajczyk/ownkeep-saas/dispatches \
             -f event_type='core-image-published' \
             -f "client_payload[core_image]=${CORE_IMAGE}" \

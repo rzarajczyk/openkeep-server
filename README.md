@@ -389,5 +389,12 @@ More detail: [api/README.md](api/README.md), [web/README.md](web/README.md).
 ## Image publishing
 
 CI on `main` builds and pushes `rzarajczyk/ownkeep-core` to Docker Hub (plus
-version/timestamp tags). It does not deploy anywhere. Hosted Cloud Run deploys
-are owned by the private `ownkeep-saas` repository.
+version/timestamp tags). It then dispatches `core-image-published` to the
+private `ownkeep-saas` repository, which builds the SaaS image and deploys to
+Cloud Run.
+
+Repository secret required on `ownkeep-core`:
+
+| Secret | Purpose |
+|--------|---------|
+| `SAAS_DISPATCH_TOKEN` | GitHub PAT with `repo` scope (or fine-grained access to `ownkeep-saas` workflows) used to trigger `repository_dispatch` after each core image publish |
