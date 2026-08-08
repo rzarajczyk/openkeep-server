@@ -1,4 +1,4 @@
-import { ArrowLeft, KeyRound, LoaderCircle, LockKeyhole } from 'lucide-react'
+import { ArrowLeft, Info, KeyRound, LoaderCircle, LockKeyhole } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import { errorMessage } from './utils'
 
@@ -45,8 +45,14 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
       <div className={`login-copy${embedded ? ' login-copy--compact' : ''}`}>
         <span className="eyebrow">Hosted OwnKeep</span>
         <h1 id="login-heading">Welcome back</h1>
-        <p>Sign in to capture ideas, lists, and files in one calm workspace.</p>
+        <p>Sign in to open your private workspace.</p>
       </div>
+      <p className="login-beta-note">
+        <Info aria-hidden="true" />
+        <span>
+          <strong>Beta testing:</strong> Creating new users is currently disabled.
+        </span>
+      </p>
       <form onSubmit={submit} className="login-form">
         <label htmlFor={loginId}>Login</label>
         <input
@@ -81,11 +87,11 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-      <p className="privacy-note">Notes stay encrypted on your device before they reach the server.</p>
+      <p className="privacy-note">Your notes are encrypted in this browser before they reach the server.</p>
     </>
   )
 
-  if (embedded) return <div className="login-embedded">{form}</div>
+  if (embedded) return <div className="login-embedded landing-view">{form}</div>
 
   return (
     <main className="login-page">
@@ -98,21 +104,6 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
         </div>
         {form}
       </section>
-      <aside className="login-art" aria-hidden="true">
-        <div className="art-note art-note-one">
-          <span>Today</span>
-          <strong>Make space for good ideas.</strong>
-          <i />
-          <i />
-          <i />
-        </div>
-        <div className="art-note art-note-two">
-          <span>Weekend</span>
-          <p>□ Market flowers</p>
-          <p>✓ Fresh bread</p>
-          <p>□ Call Mum</p>
-        </div>
-      </aside>
     </main>
   )
 }

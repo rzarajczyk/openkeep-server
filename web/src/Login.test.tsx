@@ -14,6 +14,7 @@ describe('Landing', () => {
     await user.click(screen.getByRole('button', { name: /Hosted service/i }))
 
     expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument()
+    expect(screen.getByText(/Creating new users is currently disabled/i)).toBeInTheDocument()
     await user.type(screen.getByLabelText('Login'), 'rafal')
     await user.type(screen.getByLabelText('Password'), 'secret')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
@@ -32,6 +33,10 @@ describe('Landing', () => {
 
     await user.click(screen.getByRole('button', { name: /Self-host/i }))
     expect(screen.getByRole('heading', { name: 'Install OwnKeep' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /View OwnKeep on GitHub/i })).toHaveAttribute(
+      'href',
+      'https://github.com/rzarajczyk/ownkeep-server',
+    )
     expect(screen.getByRole('heading', { name: 'Docker Compose' })).toBeInTheDocument()
     expect(screen.getByText(/docker compose up -d(?! --build)/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'docker-compose.yaml' })).toHaveAttribute(
@@ -44,7 +49,7 @@ describe('Landing', () => {
     )
 
     await user.click(screen.getByRole('tab', { name: /Docker only/i }))
-    expect(screen.getByRole('heading', { name: 'Docker + your database' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Docker + your own database' })).toBeInTheDocument()
     expect(screen.getByText(/rzarajczyk\/ownkeep:latest/)).toBeInTheDocument()
 
     expect(screen.queryByRole('tab', { name: /Google Cloud/i })).not.toBeInTheDocument()

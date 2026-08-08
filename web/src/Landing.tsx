@@ -5,11 +5,12 @@ import {
   Container,
   Database,
   FileUp,
+  GitFork,
   KeyRound,
   Paperclip,
-  Pin,
   Server,
   Shield,
+  Smartphone,
   Tags,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -23,6 +24,7 @@ interface LandingProps {
 }
 
 const REPO_RAW = 'https://raw.githubusercontent.com/rzarajczyk/ownkeep-server/main'
+const REPO_URL = 'https://github.com/rzarajczyk/ownkeep-server'
 const COMPOSE_FILE_URL = `${REPO_RAW}/docker-compose.yaml`
 const ENV_EXAMPLE_URL = `${REPO_RAW}/.env.example`
 
@@ -77,9 +79,9 @@ const FEATURES: {
     icon: FileUp,
   },
   {
-    title: 'Multi-user on your server',
-    copy: 'Admin-managed accounts for a household or small team, packaged for Docker.',
-    icon: Server,
+    title: 'Web now, mobile soon',
+    copy: 'Use OwnKeep in any modern browser. Native mobile apps are coming soon.',
+    icon: Smartphone,
   },
 ]
 
@@ -88,10 +90,12 @@ export function Landing({ onLogin }: LandingProps) {
   const [method, setMethod] = useState<InstallMethod>('compose')
 
   return (
-    <main className={`login-page${view === 'choose' ? ' landing-page--choose' : ''}`}>
+    <main className="login-page landing-page landing-page--choose">
       <section
-        className={`login-panel${view === 'choose' || view === 'self-host' ? ' login-panel--wide' : ''}`}
-        aria-labelledby={view === 'hosted' ? 'login-heading' : 'landing-heading'}
+        className="login-panel login-panel--wide"
+        aria-labelledby="landing-heading"
+        aria-hidden={view !== 'choose' ? 'true' : undefined}
+        inert={view !== 'choose' ? true : undefined}
       >
         <div className="login-brand">
           <span className="brand-mark" aria-hidden="true">
@@ -100,73 +104,106 @@ export function Landing({ onLogin }: LandingProps) {
           <span>OwnKeep</span>
         </div>
 
-        {view === 'choose' && (
-          <div className="landing-choose">
-            <div className="login-copy">
-              <span className="eyebrow">Encrypted notes you control</span>
-              <h1 id="landing-heading">OwnKeep</h1>
-              <p>A calm Keep-style workspace. Run it yourself, or sign in to the hosted service.</p>
-            </div>
-            <div className="landing-choices" role="group" aria-label="How do you want to use OwnKeep?">
-              <button type="button" className="landing-choice" onClick={() => setView('hosted')}>
-                <Cloud aria-hidden="true" />
-                <span className="landing-choice-title">Hosted service</span>
-                <span className="landing-choice-copy">
-                  Sign in to the OwnKeep service hosted by us for a low monthly fee
-                </span>
-              </button>
-              <button type="button" className="landing-choice" onClick={() => setView('self-host')}>
-                <Server aria-hidden="true" />
-                <span className="landing-choice-title">Self-host</span>
-                <span className="landing-choice-copy">Install on your own machine or cloud for free</span>
-              </button>
-            </div>
-            <FeatureHighlights />
+        <div className="landing-choose landing-view">
+          <div className="login-copy landing-hero">
+            <span className="eyebrow">Encrypted notes you control</span>
+            <h1 id="landing-heading">OwnKeep</h1>
+            <p>Your private place for notes, lists, and files — hosted for you or running on your own server.</p>
           </div>
-        )}
-
-        {view === 'hosted' && (
-          <Login onLogin={onLogin} onBack={() => setView('choose')} embedded />
-        )}
-
-        {view === 'self-host' && (
-          <div className="landing-self-host">
-            <button type="button" className="landing-back" onClick={() => setView('choose')}>
-              <ArrowLeft aria-hidden="true" />
-              Back
+          <div className="landing-choices" role="group" aria-label="How do you want to use OwnKeep?">
+            <button type="button" className="landing-choice" onClick={() => setView('hosted')}>
+              <Cloud aria-hidden="true" />
+              <span className="landing-choice-title">Hosted service</span>
+              <span className="landing-choice-copy">We run OwnKeep for you. Just sign in and start writing.</span>
             </button>
-            <div className="login-copy login-copy--compact">
-              <span className="eyebrow">Self-host</span>
-              <h1 id="landing-heading">Install OwnKeep</h1>
-              <p>Pick a deployment path. Both use the same zero-knowledge app image.</p>
-            </div>
-            <div className="install-methods" role="tablist" aria-label="Installation method">
-              {INSTALL_OPTIONS.map((option) => {
-                const Icon = option.icon
-                const selected = method === option.id
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    className={`install-method${selected ? ' is-selected' : ''}`}
-                    onClick={() => setMethod(option.id)}
-                  >
-                    <Icon aria-hidden="true" />
-                    <span className="install-method-title">{option.title}</span>
-                    <span className="install-method-copy">{option.summary}</span>
-                  </button>
-                )
-              })}
-            </div>
-            <InstallGuide method={method} />
+            <button type="button" className="landing-choice" onClick={() => setView('self-host')}>
+              <Server aria-hidden="true" />
+              <span className="landing-choice-title">Self-host</span>
+              <span className="landing-choice-copy">Run it free on your own machine, NAS, or cloud.</span>
+            </button>
           </div>
-        )}
+          <FeatureHighlights />
+        </div>
       </section>
-      <aside className="login-art" aria-hidden="true">
-        {view === 'choose' ? <ProductStage /> : <LegacyArtNotes />}
-      </aside>
+      {view === 'hosted' && (
+        <div
+          className="login-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setView('choose')
+          }}
+        >
+          <div
+            className="login-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="login-heading"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setView('choose')
+            }}
+          >
+            <div className="modal-scroll">
+              <Login onLogin={onLogin} onBack={() => setView('choose')} embedded />
+            </div>
+          </div>
+        </div>
+      )}
+      {view === 'self-host' && (
+        <div
+          className="login-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setView('choose')
+          }}
+        >
+          <div
+            className="self-host-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="install-heading"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setView('choose')
+            }}
+          >
+            <div className="modal-scroll">
+              <div className="landing-self-host landing-view">
+                <button type="button" className="landing-back" onClick={() => setView('choose')} autoFocus>
+                  <ArrowLeft aria-hidden="true" />
+                  Back
+                </button>
+                <div className="login-copy login-copy--compact">
+                  <span className="eyebrow">Self-host</span>
+                  <h1 id="install-heading">Install OwnKeep</h1>
+                  <p>Choose a setup. Both give you the same private, zero-knowledge app.</p>
+                </div>
+                <a className="repository-link" href={REPO_URL} target="_blank" rel="noreferrer">
+                  <GitFork aria-hidden="true" />
+                  View OwnKeep on GitHub
+                </a>
+                <div className="install-methods" role="tablist" aria-label="Installation method">
+                  {INSTALL_OPTIONS.map((option) => {
+                    const Icon = option.icon
+                    const selected = method === option.id
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        className={`install-method${selected ? ' is-selected' : ''}`}
+                        onClick={() => setMethod(option.id)}
+                      >
+                        <Icon aria-hidden="true" />
+                        <span className="install-method-title">{option.title}</span>
+                        <span className="install-method-copy">{option.summary}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <InstallGuide method={method} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
@@ -190,73 +227,6 @@ function FeatureHighlights() {
         })}
       </ul>
     </section>
-  )
-}
-
-function ProductStage() {
-  return (
-    <div className="product-stage">
-      <div className="stage-note stage-note-text">
-        <div className="stage-note-top">
-          <span className="stage-chip">
-            <Shield /> Encrypted
-          </span>
-          <Pin className="stage-pin" />
-        </div>
-        <strong>Weekend market</strong>
-        <p>Sourdough, tulips, and the good olive oil. Leave room for something unexpected.</p>
-        <div className="stage-labels">
-          <span>errands</span>
-          <span>home</span>
-        </div>
-        <div className="stage-attach">
-          <span className="stage-thumb" />
-          <span>receipt.jpg</span>
-        </div>
-      </div>
-      <div className="stage-note stage-note-list">
-        <span className="stage-eyebrow">Checklist</span>
-        <strong>Packing</strong>
-        <ul>
-          <li className="is-done">
-            <CheckSquare /> Passport
-          </li>
-          <li>
-            <CheckSquare /> Chargers
-          </li>
-          <li>
-            <CheckSquare /> Book for the train
-          </li>
-        </ul>
-      </div>
-      <div className="stage-note stage-note-vault">
-        <KeyRound />
-        <div>
-          <strong>Vault unlocked</strong>
-          <p>Keys stay in the browser. Ciphertext syncs quietly.</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function LegacyArtNotes() {
-  return (
-    <>
-      <div className="art-note art-note-one">
-        <span>Today</span>
-        <strong>Make space for good ideas.</strong>
-        <i />
-        <i />
-        <i />
-      </div>
-      <div className="art-note art-note-two">
-        <span>Weekend</span>
-        <p>□ Market flowers</p>
-        <p>✓ Fresh bread</p>
-        <p>□ Call Mum</p>
-      </div>
-    </>
   )
 }
 
@@ -312,7 +282,7 @@ curl -fsSLO ${ENV_EXAMPLE_URL}`}</code>
 
   return (
     <article className="install-guide" aria-live="polite">
-      <h2>Docker + your database</h2>
+      <h2>Docker + your own database</h2>
       <p>
         Runs only the OwnKeep container. Point <code>OWNKEEP_DATABASE_URL</code> at Neon or any Postgres you
         already have.
