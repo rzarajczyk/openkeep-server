@@ -17,6 +17,7 @@ OwnKeep is a multi-user notes app for small self-hosted deployments, packaged wi
 - Attachments are encrypted under the note key; filename/mime/kind live in encrypted attachment meta.
 - Password change rewraps the vault key only (no re-encryption of notes).
 - Admin password reset clears the password wrap; the user must unlock with a one-time recovery key to install a new password wrap.
+- Restoring a soft-deleted user clears the password wrap; the user signs in with an admin-generated temporary code, unlocks locally with the recovery key, and installs a new password wrap.
 - Server never sees plaintext note/attachment content. Auth tokens still authorize access to ciphertext.
 
 ## Architecture
@@ -42,12 +43,14 @@ Authentication is sessionless: login returns a bearer token, and every request i
 ## Data Model
 
 ### Users
-- `id`, `login`, `password_hash`, `enabled`, `role` (`ADMIN` or `USER`), vault fields (`kdf_salt`, `kdf_params`, `wrapped_vault_key`, `wrapped_vault_key_recovery`, `vault_initialized_at`), `created_at`, `updated_at`
+- `id`, `login`, `password_hash`, `enabled`, `role` (`ADMIN` or `USER`), `recovery_pending`, vault fields (`kdf_salt`, `kdf_params`, `wrapped_vault_key`, `wrapped_vault_key_recovery`, `vault_initialized_at`), `created_at`, `updated_at`
 - The first admin is bootstrapped once from `OWNKEEP_ADMIN_USERNAME` / `OWNKEEP_ADMIN_PASSWORD` when no enabled admin exists
-- Additional users are created by an admin in the app (no public signup). Soft-delete sets `enabled=false` and revokes tokens; login remains reserved
+- Additional users are created by an admin in the app (no public signup). Soft-delete sets `enabled=false`, clears `recovery_pending`, and revokes tokens; login remains reserved
+- A disabled non-admin user with an initialized recovery vault can be restored. Restore sets a bcrypt-hashed temporary code, enables the user with `recovery_pending=true`, clears only `wrapped_vault_key`, and preserves notes, labels, attachments, and the recovery wrap
 
 ### Auth tokens
-- `id`, `user_id`, `token_hash` (SHA-256 hex), `expires_at`, `created_at`, `revoked_at`
+- `id`, `user_id`, `token_hash` (SHA-256 hex), `purpose` (`SESSION` or `RECOVERY`), `expires_at`, `created_at`, `revoked_at`
+- `RECOVERY` tokens are accepted only by recovery completion and cannot authenticate normal API requests
 
 ### Notes
 - `id`, `user_id`, `type` (`TEXT` or `LIST`), `background_color`, `wrapped_note_key`, `ciphertext`
@@ -95,13 +98,16 @@ Actual bytes are stored on a mounted Docker volume (or S3-compatible object stor
 
 Core endpoints:
 
-- `POST /auth/login`
+- `POST /auth/login` — returns `{ token, expiresAt, user, recoveryRequired }`; restored users receive an isolated recovery token while normal users receive a session token
+- `POST /auth/recovery/complete` — public/manual bearer validation for a `RECOVERY` token; `{ newPassword, wrappedVaultKey }`; completes recovery, revokes all prior tokens, and returns a normal login response
 - `POST /auth/logout`
 - `GET /me` — `{ id, login, role }`
 - `PATCH /me/password` — `{ currentPassword, newPassword }`; revokes all of the caller’s tokens
-- `GET /users` — admin only; enabled users
+- `GET /users` — admin only; all users, active first and then deleted, alphabetized within each group; each item is `{ id, login, role, enabled, recoveryPending, canRestore }`
 - `POST /users` — admin only; create a `USER` with `{ login, password }`
-- `DELETE /users/:id` — admin only; soft-delete (cannot delete self or admin)
+- `DELETE /users/:id` — admin only; soft-delete, revoke tokens, and return the updated user summary (cannot delete self or admin)
+- `POST /users/:id/restore` — admin only; restore a disabled `USER` with an initialized recovery vault; returns `{ user, temporaryPassword }`
+- `DELETE /users/:id/permanent` — admin only; permanently delete a disabled non-admin user, cascading database data and deleting attachment blobs after commit
 - `POST /users/:id/reset-password` — admin only; `{ newPassword }` (cannot reset self; use settings)
 - `GET /notes` (supports `updated_after`, `after_id`, `limit`, `archived` for incremental sync)
 - `POST /notes`

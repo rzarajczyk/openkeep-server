@@ -6,7 +6,7 @@ import { AppShell } from './AppShell'
 import { Landing } from './Landing'
 import type { AuthSession, User } from './types'
 import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
-import { VaultSetup, VaultUnlock } from './vault/VaultGate'
+import { RestoredUserRecovery, VaultSetup, VaultUnlock } from './vault/VaultGate'
 
 const TOKEN_KEY = 'ownkeep.auth'
 
@@ -20,7 +20,7 @@ function readStoredSession(): AuthSession | null {
       localStorage.removeItem(TOKEN_KEY)
       return null
     }
-    return session
+    return { ...session, recoveryRequired: session.recoveryRequired === true }
   } catch {
     localStorage.removeItem(TOKEN_KEY)
     return null
@@ -84,7 +84,9 @@ function AuthenticatedApp({
 
 function App() {
   const [session, setSession] = useState<AuthSession | null>(() => readStoredSession())
-  const [restoring, setRestoring] = useState(() => Boolean(readStoredSession()))
+  const [restoring, setRestoring] = useState(
+    () => Boolean(session && !session.recoveryRequired),
+  )
   const [passwordHint, setPasswordHint] = useState<string | null>(null)
 
   const resetSession = useCallback(() => {
@@ -107,6 +109,11 @@ function App() {
       return
     }
     api.setToken(stored.token)
+    if (stored.recoveryRequired) {
+      setSession(stored)
+      setRestoring(false)
+      return
+    }
     const controller = new AbortController()
     api
       .me(controller.signal)
@@ -126,7 +133,14 @@ function App() {
     const next = await api.login(loginName, password, signal)
     api.setToken(next.token)
     localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
-    setPasswordHint(password)
+    setPasswordHint(next.recoveryRequired ? null : password)
+    setSession(next)
+  }
+
+  function completeRecovery(next: AuthSession) {
+    api.setToken(next.token)
+    localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
+    setPasswordHint(null)
     setSession(next)
   }
 
@@ -153,21 +167,29 @@ function App() {
 
   return (
     <VaultProvider>
-      <AuthenticatedApp
-        session={session}
-        passwordHint={passwordHint}
-        onLogout={logout}
-        onSessionEnded={resetSession}
-        onUserUpdated={(user) => {
-          setSession((prev) => {
-            if (!prev) return prev
-            const next = { ...prev, user }
-            localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
-            return next
-          })
-          setPasswordHint(null)
-        }}
-      />
+      {session.recoveryRequired ? (
+        <RestoredUserRecovery
+          user={session.user}
+          onComplete={completeRecovery}
+          onCancel={resetSession}
+        />
+      ) : (
+        <AuthenticatedApp
+          session={session}
+          passwordHint={passwordHint}
+          onLogout={logout}
+          onSessionEnded={resetSession}
+          onUserUpdated={(user) => {
+            setSession((prev) => {
+              if (!prev) return prev
+              const next = { ...prev, user }
+              localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
+              return next
+            })
+            setPasswordHint(null)
+          }}
+        />
+      )}
     </VaultProvider>
   )
 }

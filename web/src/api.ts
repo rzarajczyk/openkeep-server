@@ -5,7 +5,9 @@ import type {
   EncryptedNoteWire,
   EncryptedNoteWrite,
   KdfParams,
+  ManagedUser,
   NotesPage,
+  RestoreUserResponse,
   User,
   VaultInfo,
 } from './types'
@@ -42,6 +44,7 @@ class ApiClient {
     path: string,
     init: RequestInit = {},
     authenticated = true,
+    notifyUnauthorized = true,
   ): Promise<T> {
     const headers = new Headers(init.headers)
     if (init.body && !(init.body instanceof FormData)) {
@@ -59,7 +62,7 @@ class ApiClient {
       throw new ApiError('Unable to reach OwnKeep. Check your connection.', 0, error)
     }
 
-    if (response.status === 401 && authenticated) {
+    if (response.status === 401 && authenticated && notifyUnauthorized) {
       this.unauthorizedHandler?.()
     }
     if (!response.ok) {
@@ -86,6 +89,18 @@ class ApiClient {
 
   logout() {
     return this.request<void>('/auth/logout', { method: 'POST' })
+  }
+
+  completeRecovery(newPassword: string, wrappedVaultKey: string) {
+    return this.request<AuthSession>(
+      '/auth/recovery/complete',
+      {
+        method: 'POST',
+        body: JSON.stringify({ newPassword, wrappedVaultKey }),
+      },
+      true,
+      false,
+    )
   }
 
   async me(signal?: AbortSignal) {
@@ -122,18 +137,30 @@ class ApiClient {
   }
 
   listUsers(signal?: AbortSignal) {
-    return this.request<User[]>('/users', { signal })
+    return this.request<ManagedUser[]>('/users', { signal })
   }
 
   createUser(login: string, password: string) {
-    return this.request<User>('/users', {
+    return this.request<ManagedUser>('/users', {
       method: 'POST',
       body: JSON.stringify({ login, password }),
     })
   }
 
   deleteUser(id: number) {
-    return this.request<void>(`/users/${id}`, { method: 'DELETE' })
+    return this.request<ManagedUser>(`/users/${id}`, { method: 'DELETE' })
+  }
+
+  restoreUser(id: number) {
+    return this.request<RestoreUserResponse>(`/users/${id}/restore`, {
+      method: 'POST',
+    })
+  }
+
+  permanentlyDeleteUser(id: number) {
+    return this.request<void>(`/users/${id}/permanent`, {
+      method: 'DELETE',
+    })
   }
 
   resetUserPassword(id: number, newPassword: string) {

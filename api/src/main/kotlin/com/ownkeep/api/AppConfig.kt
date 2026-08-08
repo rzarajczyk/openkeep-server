@@ -82,7 +82,7 @@ class AppConfig {
                 it.accessDeniedHandler(apiAccessDeniedHandler)
             }
             .authorizeHttpRequests {
-                it.requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
+                it.requestMatchers(HttpMethod.POST, "/auth/login", "/auth/recovery/complete").permitAll()
                 it.requestMatchers("/health", "/actuator/health", "/openapi.json").permitAll()
                 // SPA shell and Vite-hashed assets (unified image serves UI from Spring).
                 it.requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico").permitAll()

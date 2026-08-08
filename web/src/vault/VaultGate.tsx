@@ -1,7 +1,9 @@
-import { Check, Copy, LoaderCircle } from 'lucide-react'
+import { Check, Copy, Download, KeyRound, LoaderCircle, ShieldAlert } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { User } from '../types'
+import { api, ApiError } from '../api'
+import type { AuthSession, User } from '../types'
 import { rewrapVaultForPassword } from '../crypto/vault'
+import { errorMessage } from '../utils'
 import { useVault } from './VaultContext'
 
 /** Shown only once after first-time vault creation — login password is reused automatically. */
@@ -38,38 +40,76 @@ export function VaultSetup({
     void create(passwordHint)
   }, [passwordHint])
 
+  function downloadRecoveryKey() {
+    if (!recoveryKey) return
+
+    const contents = [
+      'OwnKeep recovery key',
+      '',
+      recoveryKey,
+      '',
+      'Keep this file somewhere safe and private.',
+      'This key cannot be viewed again in OwnKeep.',
+    ].join('\n')
+    const url = URL.createObjectURL(new Blob([contents], { type: 'text/plain;charset=utf-8' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'ownkeep-recovery-key.txt'
+    document.body.append(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }
+
   if (recoveryKey) {
     return (
-      <main className="boot-screen vault-gate">
-        <h1>Save your recovery key</h1>
-        <p>
-          This is the only way to regain access if an admin resets your password. Store it offline.
-        </p>
-        <div className="recovery-key-field">
-          <input
-            type="text"
-            className="recovery-key-input"
-            value={recoveryKey}
-            readOnly
-            aria-label="Recovery key"
-            onFocus={(event) => event.currentTarget.select()}
-          />
-          <button
-            type="button"
-            className="recovery-key-copy"
-            aria-label={copied ? 'Copied' : 'Copy recovery key'}
-            title={copied ? 'Copied' : 'Copy recovery key'}
-            onClick={async () => {
-              await navigator.clipboard.writeText(recoveryKey)
-              setCopied(true)
-            }}
-          >
-            {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+      <main className="boot-screen vault-gate recovery-key-screen">
+        <section className="recovery-key-card" aria-labelledby="recovery-key-title">
+          <span className="recovery-key-icon" aria-hidden="true">
+            <KeyRound />
+          </span>
+          <p className="eyebrow">Your vault is ready</p>
+          <h1 id="recovery-key-title">Save your recovery key</h1>
+          <p className="recovery-key-intro">
+            Use this key to regain access to your notes if an admin resets your password.
+          </p>
+          <div className="recovery-key-warning" role="note">
+            <ShieldAlert aria-hidden="true" />
+            <p>
+              <strong>You won&apos;t be able to see this key again.</strong>
+              <span>Save it now and keep it somewhere safe and private.</span>
+            </p>
+          </div>
+          <div className="recovery-key-field">
+            <input
+              type="text"
+              className="recovery-key-input"
+              value={recoveryKey}
+              readOnly
+              aria-label="Recovery key"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <button
+              type="button"
+              className="recovery-key-copy"
+              aria-label={copied ? 'Copied' : 'Copy recovery key'}
+              title={copied ? 'Copied' : 'Copy recovery key'}
+              onClick={async () => {
+                await navigator.clipboard.writeText(recoveryKey)
+                setCopied(true)
+              }}
+            >
+              {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+            </button>
+          </div>
+          <button type="button" className="secondary-button recovery-key-download" onClick={downloadRecoveryKey}>
+            <Download aria-hidden="true" />
+            Download key as file
           </button>
-        </div>
-        <button type="button" className="primary-button vault-continue" onClick={() => void onReady()}>
-          I saved it — continue
-        </button>
+          <button type="button" className="primary-button vault-continue" onClick={() => void onReady()}>
+            I saved it — continue
+          </button>
+        </section>
       </main>
     )
   }
@@ -113,6 +153,129 @@ export function VaultSetup({
           Continue
         </button>
       </form>
+    </main>
+  )
+}
+
+export function RestoredUserRecovery({
+  user,
+  onComplete,
+  onCancel,
+}: {
+  user: User
+  onComplete: (session: AuthSession) => void
+  onCancel: () => void
+}) {
+  const { unlockWithRecovery } = useVault()
+  const [recoveryKey, setRecoveryKey] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function completeRecovery() {
+    const trimmedRecoveryKey = recoveryKey.trim()
+    setError(null)
+    if (!trimmedRecoveryKey) {
+      setError('Enter your recovery key.')
+      return
+    }
+    if (!password) {
+      setError('Choose a new password.')
+      return
+    }
+    if (password !== confirmation) {
+      setError('Passwords do not match.')
+      return
+    }
+
+    setBusy(true)
+    try {
+      const vaultKey = await unlockWithRecovery(trimmedRecoveryKey, user.vault)
+      const wrappedVaultKey = await rewrapVaultForPassword(vaultKey, password, user.vault)
+      const session = await api.completeRecovery(password, wrappedVaultKey)
+      onComplete(session)
+    } catch (reason) {
+      setError(
+        reason instanceof ApiError
+          ? errorMessage(reason)
+          : 'Recovery key was rejected. Check the key and try again.',
+      )
+      setBusy(false)
+    }
+  }
+
+  return (
+    <main className="boot-screen recovery-complete-screen">
+      <section className="recovery-complete-card" aria-labelledby="restored-user-recovery-title">
+        <span className="recovery-key-icon" aria-hidden="true">
+          <KeyRound />
+        </span>
+        <p className="eyebrow">Account restored</p>
+        <h1 id="restored-user-recovery-title">Recover your encrypted notes</h1>
+        <p className="recovery-complete-intro">
+          Signed in as <strong>{user.login}</strong>. Enter the recovery key you saved when
+          your vault was created, then choose a new password.
+        </p>
+        <div className="recovery-key-warning" role="note">
+          <ShieldAlert aria-hidden="true" />
+          <p>
+            <strong>Your recovery key stays in this browser.</strong>
+            <span>Only a newly encrypted vault wrap is sent to OwnKeep.</span>
+          </p>
+        </div>
+        <form
+          className="recovery-complete-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void completeRecovery()
+          }}
+        >
+          <label>
+            Recovery key
+            <input
+              type="text"
+              value={recoveryKey}
+              onChange={(event) => setRecoveryKey(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={busy}
+              autoFocus
+              required
+            />
+          </label>
+          <label>
+            New password
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="new-password"
+              disabled={busy}
+              required
+            />
+          </label>
+          <label>
+            Confirm new password
+            <input
+              type="password"
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              autoComplete="new-password"
+              disabled={busy}
+              required
+            />
+          </label>
+          {error ? <p className="inline-error recovery-complete-error" role="alert">{error}</p> : null}
+          <button type="submit" className="primary-button" disabled={busy}>
+            {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : <KeyRound aria-hidden="true" />}
+            {busy ? 'Recovering…' : 'Recover account'}
+          </button>
+          <button type="button" className="recovery-cancel" onClick={onCancel} disabled={busy}>
+            Cancel and sign out
+          </button>
+        </form>
+      </section>
     </main>
   )
 }

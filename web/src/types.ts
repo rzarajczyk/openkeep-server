@@ -27,10 +27,25 @@ export interface User {
   vault: VaultInfo
 }
 
+export interface ManagedUser {
+  id: number
+  login: string
+  role: UserRole
+  enabled: boolean
+  recoveryPending: boolean
+  canRestore: boolean
+}
+
 export interface AuthSession {
   token: string
   expiresAt: string
   user: User
+  recoveryRequired: boolean
+}
+
+export interface RestoreUserResponse {
+  user: ManagedUser
+  temporaryPassword: string
 }
 
 export interface ChecklistItem {

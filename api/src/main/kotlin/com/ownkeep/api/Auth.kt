@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
@@ -54,6 +55,15 @@ data class ChangePasswordRequest(
     @field:Size(max = 1024)
     val newPassword: String,
     @field:NotBlank
+    val wrappedVaultKey: String,
+)
+
+data class CompleteRecoveryRequest(
+    @field:NotBlank
+    @field:Size(max = 1024)
+    val newPassword: String,
+    @field:NotBlank
+    @field:Size(max = 4096)
     val wrappedVaultKey: String,
 )
 
@@ -98,7 +108,12 @@ data class MeResponse(
     val vault: VaultInfo,
 )
 
-data class LoginResponse(val token: String, val expiresAt: Instant, val user: MeResponse)
+data class LoginResponse(
+    val token: String,
+    val expiresAt: Instant,
+    val user: MeResponse,
+    val recoveryRequired: Boolean,
+)
 
 data class OwnKeepPrincipal(
     val userId: Long,
@@ -233,9 +248,51 @@ class AuthService(
         val valid = user != null && user.enabled && passwordMatches
         if (!valid) throw ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials", "Invalid login or password")
 
+        val purpose = if (user.recoveryPending) AuthTokenPurpose.RECOVERY else AuthTokenPurpose.SESSION
+        return issueLogin(user, purpose)
+    }
+
+    @Transactional
+    fun completeRecovery(rawToken: String, request: CompleteRecoveryRequest): LoginResponse {
+        if (rawToken.length !in 32..256) {
+            throw ApiException(HttpStatus.UNAUTHORIZED, "invalid_recovery_token", "Invalid recovery token")
+        }
+
+        val now = clock.instant()
+        val token = authTokenRepository.findValidForUpdate(
+            hashToken(rawToken),
+            AuthTokenPurpose.RECOVERY,
+            now,
+        ) ?: throw ApiException(HttpStatus.UNAUTHORIZED, "invalid_recovery_token", "Invalid recovery token")
+        val user = userRepository.findForUpdateById(token.userId)
+            ?: throw ApiException(HttpStatus.UNAUTHORIZED, "invalid_recovery_token", "Invalid recovery token")
+        if (!user.enabled || !user.recoveryPending) {
+            throw ApiException(HttpStatus.UNAUTHORIZED, "invalid_recovery_token", "Invalid recovery token")
+        }
+
+        validateUserPassword(request.newPassword, "new password")
+        val wrappedVaultKey = CryptoSupport.decodeRequired(
+            request.wrappedVaultKey,
+            "wrappedVaultKey",
+            minBytes = 28,
+            maxBytes = 512,
+        )
+        user.passwordHash = passwordEncoder.encode(request.newPassword)
+        user.wrappedVaultKey = wrappedVaultKey
+        user.recoveryPending = false
+        user.updatedAt = now
+        userRepository.save(user)
+        authTokenRepository.revokeAllForUser(requireNotNull(user.id), now)
+        return issueLogin(user, AuthTokenPurpose.SESSION, now)
+    }
+
+    private fun issueLogin(
+        user: UserEntity,
+        purpose: AuthTokenPurpose,
+        now: Instant = clock.instant(),
+    ): LoginResponse {
         val rawTokenBytes = ByteArray(32).also(secureRandom::nextBytes)
         val rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(rawTokenBytes)
-        val now = clock.instant()
         val expiresAt = now.plus(properties.tokenTtl)
         authTokenRepository.save(
             AuthTokenEntity(
@@ -243,6 +300,7 @@ class AuthService(
                 tokenHash = hashToken(rawToken),
                 expiresAt = expiresAt,
                 createdAt = now,
+                purpose = purpose,
             ),
         )
         authTokenRepository.deleteExpiredAndRevokedBefore(now.minusSeconds(7 * 24 * 60 * 60))
@@ -250,6 +308,7 @@ class AuthService(
             rawToken,
             expiresAt,
             toMeResponse(user),
+            recoveryRequired = purpose == AuthTokenPurpose.RECOVERY,
         )
     }
 
@@ -321,7 +380,11 @@ class AuthService(
     @Transactional(readOnly = true)
     fun authenticate(rawToken: String): OwnKeepPrincipal? {
         if (rawToken.length !in 32..256) return null
-        val token = authTokenRepository.findByTokenHashAndRevokedAtIsNullAndExpiresAtAfter(hashToken(rawToken), clock.instant())
+        val token = authTokenRepository.findByTokenHashAndPurposeAndRevokedAtIsNullAndExpiresAtAfter(
+            hashToken(rawToken),
+            AuthTokenPurpose.SESSION,
+            clock.instant(),
+        )
             ?: return null
         val user = userRepository.findById(token.userId).orElse(null) ?: return null
         if (!user.enabled) return null
@@ -498,6 +561,19 @@ class AuthController(
     ): LoginResponse {
         loginRateLimiter.check(clientIp(httpRequest), request.login.trim())
         return authService.login(request)
+    }
+
+    @PostMapping("/recovery/complete")
+    fun completeRecovery(
+        @RequestHeader(name = "Authorization", required = false) authorization: String?,
+        @Valid @RequestBody request: CompleteRecoveryRequest,
+    ): LoginResponse {
+        val rawToken = authorization
+            ?.takeIf { it.startsWith("Bearer ") }
+            ?.substring(7)
+            ?.trim()
+            .orEmpty()
+        return authService.completeRecovery(rawToken, request)
     }
 
     @PostMapping("/logout")

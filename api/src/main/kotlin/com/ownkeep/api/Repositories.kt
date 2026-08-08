@@ -13,7 +13,15 @@ import java.util.UUID
 interface UserRepository : JpaRepository<UserEntity, Long> {
     fun findByLogin(login: String): UserEntity?
     fun findAllByLoginIn(logins: Collection<String>): List<UserEntity>
-    fun findAllByEnabledTrueOrderByLoginAsc(): List<UserEntity>
+
+    @Query(
+        """
+            select u from UserEntity u
+            order by u.enabled desc, lower(u.login) asc, u.login asc
+        """,
+    )
+    fun findAllForAdministration(): List<UserEntity>
+
     fun existsByRoleAndEnabledTrue(role: UserRole): Boolean
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -22,7 +30,27 @@ interface UserRepository : JpaRepository<UserEntity, Long> {
 }
 
 interface AuthTokenRepository : JpaRepository<AuthTokenEntity, UUID> {
-    fun findByTokenHashAndRevokedAtIsNullAndExpiresAtAfter(tokenHash: String, now: Instant): AuthTokenEntity?
+    fun findByTokenHashAndPurposeAndRevokedAtIsNullAndExpiresAtAfter(
+        tokenHash: String,
+        purpose: AuthTokenPurpose,
+        now: Instant,
+    ): AuthTokenEntity?
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(
+        """
+            select t from AuthTokenEntity t
+            where t.tokenHash = :tokenHash
+              and t.purpose = :purpose
+              and t.revokedAt is null
+              and t.expiresAt > :now
+        """,
+    )
+    fun findValidForUpdate(
+        @Param("tokenHash") tokenHash: String,
+        @Param("purpose") purpose: AuthTokenPurpose,
+        @Param("now") now: Instant,
+    ): AuthTokenEntity?
 
     @Modifying
     @Query("update AuthTokenEntity t set t.revokedAt = :now where t.tokenHash = :hash and t.revokedAt is null")
@@ -104,6 +132,14 @@ interface AttachmentRepository : JpaRepository<AttachmentEntity, UUID> {
         """,
     )
     fun totalBytesForUser(@Param("userId") userId: Long): Long
+
+    @Query(
+        """
+            select a.storagePath from AttachmentEntity a, NoteEntity n
+            where a.noteId = n.id and n.userId = :userId
+        """,
+    )
+    fun findStoragePathsByUserId(@Param("userId") userId: Long): List<String>
 
     @Modifying
     fun deleteAllByNoteId(noteId: UUID): Int

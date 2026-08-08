@@ -51,4 +51,29 @@ describe('api client', () => {
     await expect(api.me()).rejects.toBeInstanceOf(ApiError)
     expect(unauthorized).toHaveBeenCalledOnce()
   })
+
+  it('uses the recovery bearer token without resetting auth on completion failure', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Recovery expired' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const unauthorized = vi.fn()
+    api.setToken('recovery-token')
+    api.onUnauthorized(unauthorized)
+
+    await expect(api.completeRecovery('new-password', 'new-wrap')).rejects.toBeInstanceOf(
+      ApiError,
+    )
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect((init.headers as Headers).get('Authorization')).toBe('Bearer recovery-token')
+    expect(JSON.parse(init.body as string)).toEqual({
+      newPassword: 'new-password',
+      wrappedVaultKey: 'new-wrap',
+    })
+    expect(unauthorized).not.toHaveBeenCalled()
+  })
 })

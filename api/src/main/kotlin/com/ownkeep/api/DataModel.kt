@@ -14,6 +14,7 @@ import java.util.UUID
 
 enum class NoteType { TEXT, LIST }
 enum class UserRole { ADMIN, USER }
+enum class AuthTokenPurpose { SESSION, RECOVERY }
 
 @Entity
 @Table(name = "users")
@@ -30,6 +31,8 @@ class UserEntity(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var role: UserRole = UserRole.USER,
+    @Column(name = "recovery_pending", nullable = false)
+    var recoveryPending: Boolean = false,
     @Column(name = "kdf_salt", columnDefinition = "bytea")
     var kdfSalt: ByteArray? = null,
     @Column(name = "kdf_params", columnDefinition = "text")
@@ -67,6 +70,9 @@ class AuthTokenEntity(
     var createdAt: Instant = Instant.now(),
     @Column(name = "revoked_at")
     var revokedAt: Instant? = null,
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    var purpose: AuthTokenPurpose = AuthTokenPurpose.SESSION,
 )
 
 @Entity
