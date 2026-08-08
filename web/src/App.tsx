@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { api } from './api'
 import { AppShell } from './AppShell'
-import { Landing } from './Landing'
+import { EmailVerifyPage } from './EmailVerifyPage'
+import { Login } from './Login'
 import type { AuthSession, User } from './types'
 import { VaultProvider, useVault, vaultNeedsSetup } from './vault/VaultContext'
 import { RestoredUserRecovery, VaultSetup, VaultUnlock } from './vault/VaultGate'
@@ -25,6 +26,14 @@ function readStoredSession(): AuthSession | null {
     localStorage.removeItem(TOKEN_KEY)
     return null
   }
+}
+
+function isVerifyEmailPath() {
+  return window.location.pathname.replace(/\/+$/, '') === '/verify-email'
+}
+
+function readVerifyToken() {
+  return new URLSearchParams(window.location.search).get('token')
 }
 
 function AuthenticatedApp({
@@ -88,6 +97,7 @@ function App() {
     () => Boolean(session && !session.recoveryRequired),
   )
   const [passwordHint, setPasswordHint] = useState<string | null>(null)
+  const [verifyRoute, setVerifyRoute] = useState(() => isVerifyEmailPath())
 
   const resetSession = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY)
@@ -129,8 +139,8 @@ function App() {
     return () => controller.abort()
   }, [resetSession])
 
-  async function login(loginName: string, password: string, signal: AbortSignal) {
-    const next = await api.login(loginName, password, signal)
+  async function login(email: string, password: string, signal: AbortSignal) {
+    const next = await api.login(email, password, signal)
     api.setToken(next.token)
     localStorage.setItem(TOKEN_KEY, JSON.stringify(next))
     setPasswordHint(next.recoveryRequired ? null : password)
@@ -163,7 +173,19 @@ function App() {
     )
   }
 
-  if (!session) return <Landing onLogin={login} />
+  if (!session && verifyRoute) {
+    return (
+      <EmailVerifyPage
+        token={readVerifyToken()}
+        onDone={() => {
+          window.history.replaceState({}, '', '/')
+          setVerifyRoute(false)
+        }}
+      />
+    )
+  }
+
+  if (!session) return <Login onLogin={login} />
 
   return (
     <VaultProvider>

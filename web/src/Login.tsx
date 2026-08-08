@@ -1,33 +1,33 @@
-import { ArrowLeft, Info, KeyRound, LoaderCircle, LockKeyhole } from 'lucide-react'
+import { KeyRound, LoaderCircle, LockKeyhole } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import { errorMessage } from './utils'
 
 interface LoginProps {
-  onLogin: (login: string, password: string, signal: AbortSignal) => Promise<void>
+  onLogin: (email: string, password: string, signal: AbortSignal) => Promise<void>
   onBack?: () => void
-  /** When true, omit the outer page chrome (used inside Landing). */
+  /** When true, omit the outer page chrome (useful for hosted shells). */
   embedded?: boolean
 }
 
 export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
-  const loginId = useId()
+  const emailId = useId()
   const passwordId = useId()
-  const [login, setLogin] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!login.trim() || !password) {
-      setError('Enter your login and password.')
+    if (!email.trim() || !password) {
+      setError('Enter your email and password.')
       return
     }
     const controller = new AbortController()
     setSubmitting(true)
     setError('')
     try {
-      await onLogin(login.trim(), password, controller.signal)
+      await onLogin(email.trim(), password, controller.signal)
     } catch (reason) {
       setError(errorMessage(reason))
       setSubmitting(false)
@@ -38,30 +38,24 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
     <>
       {onBack && (
         <button type="button" className="landing-back" onClick={onBack} disabled={submitting}>
-          <ArrowLeft aria-hidden="true" />
           Back
         </button>
       )}
       <div className={`login-copy${embedded ? ' login-copy--compact' : ''}`}>
-        <span className="eyebrow">Hosted OwnKeep</span>
+        <span className="eyebrow">OwnKeep</span>
         <h1 id="login-heading">Welcome back</h1>
         <p>Sign in to open your private workspace.</p>
       </div>
-      <p className="login-beta-note">
-        <Info aria-hidden="true" />
-        <span>
-          <strong>Beta testing:</strong> Creating new users is currently disabled.
-        </span>
-      </p>
       <form onSubmit={submit} className="login-form">
-        <label htmlFor={loginId}>Login</label>
+        <label htmlFor={emailId}>Email</label>
         <input
-          id={loginId}
-          name="login"
-          autoComplete="username"
+          id={emailId}
+          name="email"
+          type="email"
+          autoComplete="email"
           autoFocus
-          value={login}
-          onChange={(event) => setLogin(event.target.value)}
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
           disabled={submitting}
         />
         <label htmlFor={passwordId}>Password</label>
@@ -91,7 +85,7 @@ export function Login({ onLogin, onBack, embedded = false }: LoginProps) {
     </>
   )
 
-  if (embedded) return <div className="login-embedded landing-view">{form}</div>
+  if (embedded) return <div className="login-embedded">{form}</div>
 
   return (
     <main className="login-page">

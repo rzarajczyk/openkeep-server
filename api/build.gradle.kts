@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.springframework.boot.gradle.tasks.bundling.BootJar
 
 plugins {
     kotlin("jvm") version "2.1.21"
@@ -6,6 +7,7 @@ plugins {
     kotlin("plugin.jpa") version "2.1.21"
     id("org.springframework.boot") version "3.5.7"
     id("io.spring.dependency-management") version "1.1.7"
+    `maven-publish`
 }
 
 group = "com.ownkeep"
@@ -27,6 +29,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-mail")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.flywaydb:flyway-core")
@@ -57,4 +60,25 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+tasks.named<Jar>("jar") {
+    enabled = true
+    archiveClassifier.set("lib")
+}
+
+tasks.named<BootJar>("bootJar") {
+    archiveFileName.set("ownkeep-core.jar")
+    manifest {
+        attributes("Main-Class" to "org.springframework.boot.loader.launch.PropertiesLauncher")
+    }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"])
+            artifactId = "ownkeep-core"
+        }
+    }
 }

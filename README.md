@@ -1,8 +1,12 @@
-# OwnKeep
+# OwnKeep Core
 
-Self-hosted notes app — text and checklist notes, labels, pinning, attachments, search, Google Keep import, and multi-user accounts. A small Google Keep-style alternative you run with Docker.
+Self-hosted, open-source notes app — text and checklist notes, labels, pinning, attachments, search, Google Keep import, and multi-user accounts. A small Google Keep-style alternative you run with Docker.
+
+**License:** [Apache License 2.0](LICENSE). The OwnKeep name and logos are trademarks and are **not** covered by the code license (see [NOTICE](NOTICE)).
 
 **Stack:** React SPA + Kotlin/Spring Boot API (single `app` image) · PostgreSQL (`db`)
+
+This repository is **OwnKeep Core** (`ownkeep-core`). The hosted SaaS product (landing page, public self-registration, Cloud Run packaging) lives in a separate private repository and builds a derived image on top of `ownkeep-core`.
 
 ## Quick start
 
@@ -14,11 +18,11 @@ docker compose up -d --build
 open http://localhost:8080
 ```
 
-Accounts: set `OWNKEEP_ADMIN_USERNAME` / `OWNKEEP_ADMIN_PASSWORD` in `.env` to bootstrap the first admin; manage other users in the app. Never commit `.env`.
+Accounts: set `OWNKEEP_ADMIN_EMAIL` / `OWNKEEP_ADMIN_PASSWORD` in `.env` to bootstrap the first admin; manage other users in the app. Usernames are email addresses. Optional email verification is controlled by `OWNKEEP_EMAIL_VERIFICATION_REQUIRED` (off by default). Never commit `.env`.
 
-Database config is a single `OWNKEEP_DATABASE_URL` (Neon-style `postgresql://user:pass@host/db`). Older `POSTGRES_*` variables are no longer read — see [.env.example](.env.example).
+Database config is a single `OWNKEEP_DATABASE_URL` (Neon-style `postgresql://user:pass@host/db`).
 
-The Compose stack builds one image (`ownkeep:latest`) from the root [Dockerfile](Dockerfile): the SPA is embedded in the API JAR and served by Spring on port 8080. Postgres stays a separate `db` service.
+The Compose stack builds one image (`ownkeep-core:latest`) from the root [Dockerfile](Dockerfile): the SPA is served from `/app/static` and the API JAR supports extension JARs via `LOADER_PATH=/app/extensions`. Postgres stays a separate `db` service.
 
 ## Development
 
@@ -51,13 +55,12 @@ docker compose down          # keeps data volumes
 
 ## Image publishing
 
-CI on `main` builds and pushes the unified Docker Hub image `rzarajczyk/ownkeep` (plus a timestamp tag). Separate `ownkeep-api` / `ownkeep-web` image publishes are paused; the OMV/NAS dual-image stack in [README_OMV.md](README_OMV.md) continues to use the last published dual tags until that stack is migrated.
+CI on `main` builds and pushes the Docker Hub image `rzarajczyk/ownkeep-core` (plus version/timestamp tags). It does not deploy anywhere. Hosted Cloud Run deploys are owned by the private `ownkeep-saas` repository (triggered on SaaS pushes and after each core image publish).
 
 ## Security
 
 - Notes and attachments are zero-knowledge encrypted in the browser; the API stores opaque ciphertext only
 - On first unlock, each user receives a **recovery key** — store it offline. Admin password reset clears the password wrap; recovery is required to regain vault access
-- V5 schema migration wipes existing note/attachment rows (dev cutover). Clear the attachment volume when upgrading from pre-ZK builds
 - Configure secrets only in `.env` (see `.env.example`)
 - Use HTTPS and a reverse proxy in production; bind `OWNKEEP_PORT=127.0.0.1:8080` if the proxy runs on the same host
 - Rotate any credential that was ever committed or shared

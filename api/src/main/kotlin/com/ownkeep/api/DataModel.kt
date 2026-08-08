@@ -23,7 +23,7 @@ class UserEntity(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null,
     @Column(nullable = false, unique = true)
-    var login: String = "",
+    var email: String = "",
     @Column(name = "password_hash", nullable = false)
     var passwordHash: String = "",
     @Column(nullable = false)
@@ -33,6 +33,8 @@ class UserEntity(
     var role: UserRole = UserRole.USER,
     @Column(name = "recovery_pending", nullable = false)
     var recoveryPending: Boolean = false,
+    @Column(name = "email_verified_at")
+    var emailVerifiedAt: Instant? = null,
     @Column(name = "kdf_salt", columnDefinition = "bytea")
     var kdfSalt: ByteArray? = null,
     @Column(name = "kdf_params", columnDefinition = "text")
@@ -53,7 +55,27 @@ class UserEntity(
         get() = vaultInitializedAt != null &&
             kdfSalt != null &&
             wrappedVaultKeyRecovery != null
+
+    val emailVerified: Boolean
+        get() = emailVerifiedAt != null
 }
+
+@Entity
+@Table(name = "email_verification_tokens")
+class EmailVerificationTokenEntity(
+    @Id
+    var id: UUID = UUID.randomUUID(),
+    @Column(name = "user_id", nullable = false)
+    var userId: Long = 0,
+    @Column(name = "token_hash", nullable = false, unique = true, length = 64)
+    var tokenHash: String = "",
+    @Column(name = "expires_at", nullable = false)
+    var expiresAt: Instant = Instant.now(),
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
+    @Column(name = "consumed_at")
+    var consumedAt: Instant? = null,
+)
 
 @Entity
 @Table(name = "auth_tokens")

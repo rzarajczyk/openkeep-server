@@ -472,9 +472,9 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
             onClick={() => setAccountOpen((open) => !open)}
           >
             <span className="avatar" aria-hidden="true">
-              {user.login.slice(0, 1).toUpperCase()}
+              {user.email.slice(0, 1).toUpperCase()}
             </span>
-            <span className="user-login">{user.login}</span>
+            <span className="user-login">{user.email}</span>
             <ChevronDown aria-hidden="true" />
           </button>
           {accountOpen && (
@@ -574,9 +574,9 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
         <div className="mobile-account">
           <div className="mobile-account-bar">
             <span className="avatar" aria-hidden="true">
-              {user.login.slice(0, 1).toUpperCase()}
+              {user.email.slice(0, 1).toUpperCase()}
             </span>
-            <span className="user-login">{user.login}</span>
+            <span className="user-login">{user.email}</span>
             <button type="button" className="icon-button" onClick={() => void onLogout()} aria-label="Sign out">
               <LogOut />
             </button>

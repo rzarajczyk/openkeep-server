@@ -1,10 +1,12 @@
 package com.ownkeep.api
 
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.scheduling.annotation.EnableAsync
 import org.springframework.http.HttpMethod
+import org.springframework.mail.javamail.JavaMailSender
+import org.springframework.scheduling.annotation.EnableAsync
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
@@ -17,20 +19,42 @@ import java.time.Duration
 
 @ConfigurationProperties("ownkeep")
 data class OwnKeepProperties(
-    var adminUsername: String = "",
+    var adminEmail: String = "",
     var adminPassword: String = "",
     var tokenTtl: Duration = Duration.ofDays(30),
     var maxSyncLimit: Int = 200,
+    var emailVerificationRequired: Boolean = false,
+    var publicBaseUrl: String = "",
+    var emailVerificationTokenTtl: Duration = Duration.ofHours(24),
+    var emailVerificationRateLimit: EmailVerificationRateLimitProperties = EmailVerificationRateLimitProperties(),
     var loginRateLimit: LoginRateLimitProperties = LoginRateLimitProperties(),
+    var mail: MailProperties = MailProperties(),
+    var spaStaticDir: Path? = null,
     var attachment: AttachmentProperties = AttachmentProperties(),
     var takeoutImport: TakeoutImportProperties = TakeoutImportProperties(),
 ) {
     data class LoginRateLimitProperties(
         /** Max login attempts per client IP within [window]. */
         var maxAttemptsPerIp: Int = 10,
-        /** Max login attempts per login name within [window]. */
-        var maxAttemptsPerLogin: Int = 5,
+        /** Max login attempts per email within [window]. */
+        var maxAttemptsPerEmail: Int = 5,
         var window: Duration = Duration.ofMinutes(1),
+    )
+
+    data class EmailVerificationRateLimitProperties(
+        var maxAttemptsPerIp: Int = 10,
+        var maxAttemptsPerEmail: Int = 5,
+        var window: Duration = Duration.ofMinutes(1),
+    )
+
+    data class MailProperties(
+        var host: String = "",
+        var port: Int = 587,
+        var username: String = "",
+        var password: String = "",
+        var smtpAuth: Boolean = true,
+        var startTls: Boolean = true,
+        var from: String = "",
     )
 
     data class AttachmentProperties(
@@ -68,12 +92,22 @@ class AppConfig {
     fun loginRateLimiter(properties: OwnKeepProperties) = LoginRateLimiter(properties)
 
     @Bean
+    fun emailDeliveryService(
+        properties: OwnKeepProperties,
+        mailSender: ObjectProvider<JavaMailSender>,
+    ) = EmailDeliveryService(properties, mailSender.ifAvailable)
+
+    @Bean
     fun securityFilterChain(
         http: HttpSecurity,
         tokenAuthenticationFilter: TokenAuthenticationFilter,
         apiAuthenticationEntryPoint: ApiAuthenticationEntryPoint,
         apiAccessDeniedHandler: ApiAccessDeniedHandler,
+        publicEndpointContributors: List<PublicEndpointContributor>,
     ): SecurityFilterChain {
+        val extensionRegistry = PublicEndpointRegistry()
+        publicEndpointContributors.forEach { it.contribute(extensionRegistry) }
+
         http
             .csrf { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
@@ -82,10 +116,25 @@ class AppConfig {
                 it.accessDeniedHandler(apiAccessDeniedHandler)
             }
             .authorizeHttpRequests {
-                it.requestMatchers(HttpMethod.POST, "/auth/login", "/auth/recovery/complete").permitAll()
+                it.requestMatchers(
+                    HttpMethod.POST,
+                    "/auth/login",
+                    "/auth/recovery/complete",
+                    "/auth/email/verify",
+                    "/auth/email/resend",
+                ).permitAll()
+                extensionRegistry.postPaths.forEach { path ->
+                    it.requestMatchers(HttpMethod.POST, path).permitAll()
+                }
+                extensionRegistry.getPaths.forEach { path ->
+                    it.requestMatchers(HttpMethod.GET, path).permitAll()
+                }
+                extensionRegistry.anyPaths.forEach { path ->
+                    it.requestMatchers(path).permitAll()
+                }
                 it.requestMatchers("/health", "/actuator/health", "/openapi.json").permitAll()
                 // SPA shell and Vite-hashed assets (unified image serves UI from Spring).
-                it.requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico").permitAll()
+                it.requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico", "/verify-email").permitAll()
                 it.requestMatchers(
                     HttpMethod.GET,
                     "/*.js",

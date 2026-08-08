@@ -15,15 +15,15 @@ const api = vi.hoisted(() => ({
 
 vi.mock('./api', () => ({ api }))
 
-vi.mock('./Landing', () => ({
-  Landing: ({
+vi.mock('./Login', () => ({
+  Login: ({
     onLogin,
   }: {
-    onLogin: (login: string, password: string, signal: AbortSignal) => Promise<void>
+    onLogin: (email: string, password: string, signal: AbortSignal) => Promise<void>
   }) => (
     <button
       type="button"
-      onClick={() => void onLogin('restored', 'temporary-code', new AbortController().signal)}
+      onClick={() => void onLogin('restored@example.com', 'temporary-code', new AbortController().signal)}
     >
       Test sign in
     </button>
@@ -31,7 +31,7 @@ vi.mock('./Landing', () => ({
 }))
 
 vi.mock('./AppShell', () => ({
-  AppShell: ({ user }: { user: User }) => <div>Workspace for {user.login}</div>,
+  AppShell: ({ user }: { user: User }) => <div>Workspace for {user.email}</div>,
 }))
 
 vi.mock('./vault/VaultContext', () => ({
@@ -49,7 +49,7 @@ vi.mock('./vault/VaultGate', () => ({
     onComplete: (session: AuthSession) => void
   }) => (
     <section>
-      <h1>Recovery for {user.login}</h1>
+      <h1>Recovery for {user.email}</h1>
       <button type="button" onClick={() => onComplete(normalSession)}>
         Finish recovery
       </button>
@@ -68,7 +68,7 @@ const vault: VaultInfo = {
   initialized: true,
   needsRecoveryUnlock: true,
 }
-const user: User = { id: 2, login: 'restored', role: 'USER', vault }
+const user: User = { id: 2, email: 'restored@example.com', role: 'USER', vault }
 const recoverySession: AuthSession = {
   token: 'recovery-token',
   expiresAt: '2099-01-01T00:00:00Z',
@@ -102,7 +102,7 @@ describe('recovery auth routing', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'Recovery for restored' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Recovery for restored@example.com' })).toBeVisible()
     expect(api.setToken).toHaveBeenCalledWith('recovery-token')
     expect(api.me).not.toHaveBeenCalled()
   })
@@ -112,13 +112,13 @@ describe('recovery auth routing', () => {
     render(<App />)
 
     await browser.click(screen.getByRole('button', { name: 'Test sign in' }))
-    expect(await screen.findByRole('heading', { name: 'Recovery for restored' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Recovery for restored@example.com' })).toBeVisible()
     expect(localStorage.getItem('ownkeep.auth')).not.toContain('temporary-code')
     expect(api.me).not.toHaveBeenCalled()
 
     await browser.click(screen.getByRole('button', { name: 'Finish recovery' }))
 
-    expect(await screen.findByText('Workspace for restored')).toBeVisible()
+    expect(await screen.findByText('Workspace for restored@example.com')).toBeVisible()
     await waitFor(() => expect(api.setToken).toHaveBeenLastCalledWith('normal-token'))
     expect(JSON.parse(localStorage.getItem('ownkeep.auth') ?? '{}')).toEqual(normalSession)
   })

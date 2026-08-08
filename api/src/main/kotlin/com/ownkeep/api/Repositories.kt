@@ -11,13 +11,13 @@ import java.time.Instant
 import java.util.UUID
 
 interface UserRepository : JpaRepository<UserEntity, Long> {
-    fun findByLogin(login: String): UserEntity?
-    fun findAllByLoginIn(logins: Collection<String>): List<UserEntity>
+    fun findByEmail(email: String): UserEntity?
+    fun findAllByEmailIn(emails: Collection<String>): List<UserEntity>
 
     @Query(
         """
             select u from UserEntity u
-            order by u.enabled desc, lower(u.login) asc, u.login asc
+            order by u.enabled desc, lower(u.email) asc, u.email asc
         """,
     )
     fun findAllForAdministration(): List<UserEntity>
@@ -27,6 +27,35 @@ interface UserRepository : JpaRepository<UserEntity, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from UserEntity u where u.id = :id")
     fun findForUpdateById(@Param("id") id: Long): UserEntity?
+}
+
+interface EmailVerificationTokenRepository : JpaRepository<EmailVerificationTokenEntity, UUID> {
+    fun findByTokenHash(tokenHash: String): EmailVerificationTokenEntity?
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(
+        """
+            select t from EmailVerificationTokenEntity t
+            where t.tokenHash = :tokenHash
+              and t.consumedAt is null
+              and t.expiresAt > :now
+        """,
+    )
+    fun findValidForUpdate(
+        @Param("tokenHash") tokenHash: String,
+        @Param("now") now: Instant,
+    ): EmailVerificationTokenEntity?
+
+    @Modifying
+    @Query(
+        """
+            update EmailVerificationTokenEntity t
+            set t.consumedAt = :now
+            where t.userId = :userId
+              and t.consumedAt is null
+        """,
+    )
+    fun consumeAllForUser(@Param("userId") userId: Long, @Param("now") now: Instant): Int
 }
 
 interface AuthTokenRepository : JpaRepository<AuthTokenEntity, UUID> {

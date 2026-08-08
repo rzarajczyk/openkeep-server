@@ -1,5 +1,6 @@
-# Unified OwnKeep image: React SPA + Spring Boot API on one port.
+# OwnKeep Core: React SPA + Spring Boot API on one port.
 # Postgres remains a separate service.
+# Derived SaaS images may overlay /app/extensions/*.jar and /app/static/.
 
 FROM node:24-alpine AS web-build
 WORKDIR /web
@@ -22,10 +23,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --create-home ownkeep
 WORKDIR /app
-COPY --from=api-build /workspace/build/libs/ownkeep-api-*.jar app.jar
-RUN mkdir -p /data/attachments && chown -R ownkeep:ownkeep /data
+COPY --from=api-build /workspace/build/libs/ownkeep-core.jar /app/app.jar
+COPY --from=web-build /web/dist/ /app/static/
+RUN mkdir -p /data/attachments /app/extensions \
+    && chown -R ownkeep:ownkeep /data /app
 USER ownkeep
-ENV OWNKEEP_ATTACHMENT_STORAGE_ROOT=/data/attachments
+ENV OWNKEEP_ATTACHMENT_STORAGE_ROOT=/data/attachments \
+    OWNKEEP_SPA_STATIC_DIR=/app/static \
+    LOADER_PATH=/app/extensions
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
     CMD curl --fail --silent http://127.0.0.1:8080/api/health > /dev/null || exit 1

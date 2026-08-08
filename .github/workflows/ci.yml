@@ -52,21 +52,14 @@ jobs:
       - name: Run Playwright tests
         run: npm run test:e2e
 
+  # Publishes ownkeep-core to Docker Hub only. Hosted GCP deploy lives in ownkeep-saas.
   docker:
-    name: Docker image
+    name: Publish image
     needs: [api-tests, web-tests]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-    # secrets context cannot be used in if:; map to env first.
-    env:
-      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      GCP_REGION: ${{ secrets.GCP_REGION }}
-      GCP_CLOUD_RUN_SERVICE: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -75,6 +68,7 @@ jobs:
           APP_NAME=$(grep -E '^name:' compose.yaml | awk '{print $2}')
           echo "APP_NAME=${APP_NAME}" >> "$GITHUB_ENV"
           echo "TAG_NOW=$(date +'%Y-%m-%d-%H-%M-%S')" >> "$GITHUB_ENV"
+          echo "VERSION=$(grep -E '^version' api/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -90,10 +84,10 @@ jobs:
         run: |
           IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}"
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "tags=${IMAGE}:latest,${IMAGE}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
-          echo "deploy_image=docker.io/${IMAGE}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
+          echo "tags=${IMAGE}:latest,${IMAGE}:${{ env.VERSION }},${IMAGE}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push unified image
+      - name: Build and push core image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -103,29 +97,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Authenticate to Google Cloud
-        if: >-
-          ${{
-            env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' &&
-            env.GCP_SERVICE_ACCOUNT != '' &&
-            env.GCP_PROJECT_ID != '' &&
-            env.GCP_REGION != '' &&
-            env.GCP_CLOUD_RUN_SERVICE != ''
-          }}
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Cloud SDK
-        if: ${{ steps.auth.outcome == 'success' }}
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Deploy to Cloud Run
-        if: ${{ steps.auth.outcome == 'success' }}
+      - name: Trigger ownkeep-saas rebuild
+        env:
+          SAAS_DISPATCH_TOKEN: ${{ secrets.SAAS_DISPATCH_TOKEN }}
+          CORE_IMAGE: docker.io/${{ steps.docker.outputs.image }}:${{ env.TAG_NOW }}
+        if: ${{ env.SAAS_DISPATCH_TOKEN != '' }}
         run: |
-          gcloud run services update "$GCP_CLOUD_RUN_SERVICE" \
-            --project="$GCP_PROJECT_ID" \
-            --region="$GCP_REGION" \
-            --image="${{ steps.docker.outputs.deploy_image }}"
+          GH_TOKEN="$SAAS_DISPATCH_TOKEN" gh api --method POST repos/rzarajczyk/ownkeep-saas/dispatches \
+            -f event_type='core-image-published' \
+            -f "client_payload[core_image]=${CORE_IMAGE}" \
+            -f "client_payload[core_ref]=${{ github.sha }}" \
+            -f "client_payload[core_version]=${{ env.VERSION }}"

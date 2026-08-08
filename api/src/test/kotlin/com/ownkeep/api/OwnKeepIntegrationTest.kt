@@ -30,13 +30,13 @@ class OwnKeepPostgres(image: String) : PostgreSQLContainer<OwnKeepPostgres>(imag
 
 @SpringBootTest(
     properties = [
-        "ownkeep.admin-username=alice",
+        "ownkeep.admin-email=alice@example.com",
         "ownkeep.admin-password=alice-password",
         "ownkeep.token-ttl=1h",
         "ownkeep.attachment.max-file-size=1024",
         "ownkeep.attachment.per-user-quota=4096",
         "ownkeep.login-rate-limit.max-attempts-per-ip=10000",
-        "ownkeep.login-rate-limit.max-attempts-per-login=10000",
+        "ownkeep.login-rate-limit.max-attempts-per-email=10000",
     ],
 )
 @AutoConfigureMockMvc
@@ -62,12 +62,12 @@ class OwnKeepIntegrationTest {
 
     @org.junit.jupiter.api.BeforeEach
     fun ensureBobUser() {
-        val existing = userRepository.findByLogin("bob")
+        val existing = userRepository.findByEmail("bob@example.com")
         val now = java.time.Instant.now()
         if (existing == null) {
             userRepository.save(
                 UserEntity(
-                    login = "bob",
+                    email = "bob@example.com",
                     passwordHash = passwordEncoder.encode("bob-password"),
                     enabled = true,
                     role = UserRole.USER,
@@ -89,7 +89,7 @@ class OwnKeepIntegrationTest {
             existing.vaultInitializedAt = null
             userRepository.save(existing)
         }
-        userRepository.findByLogin("alice")?.let { alice ->
+        userRepository.findByEmail("alice@example.com")?.let { alice ->
             alice.passwordHash = passwordEncoder.encode("alice-password")
             alice.recoveryPending = false
             alice.kdfSalt = null
@@ -103,8 +103,8 @@ class OwnKeepIntegrationTest {
 
     @Test
     fun `vault init encrypted note ownership and opaque attachment work end to end`() {
-        val aliceToken = login("alice", "alice-password")
-        val bobToken = login("bob", "bob-password")
+        val aliceToken = login("alice@example.com", "alice-password")
+        val bobToken = login("bob@example.com", "bob-password")
 
         mockMvc.perform(get("/me").header("Authorization", "Bearer $aliceToken"))
             .andExpect(status().isOk)
@@ -229,7 +229,7 @@ class OwnKeepIntegrationTest {
 
     @Test
     fun `password change requires vault wrap and admin reset clears password wrap`() {
-        val aliceToken = login("alice", "alice-password")
+        val aliceToken = login("alice@example.com", "alice-password")
         val salt = b64(ByteArray(16) { 1 })
         val wrap = b64(ByteArray(48) { 2 })
         val recovery = b64(ByteArray(48) { 3 })
@@ -265,8 +265,8 @@ class OwnKeepIntegrationTest {
                 ),
         ).andExpect(status().isNoContent)
 
-        val aliceAfter = login("alice", "alice-password-2")
-        val bobToken = login("bob", "bob-password")
+        val aliceAfter = login("alice@example.com", "alice-password-2")
+        val bobToken = login("bob@example.com", "bob-password")
         // promote bob temporarily? alice is admin - reset bob after bob has vault
         val bobWrap = b64(ByteArray(48) { 11 })
         val bobRecovery = b64(ByteArray(48) { 12 })
@@ -286,7 +286,7 @@ class OwnKeepIntegrationTest {
                 ),
         ).andExpect(status().isOk)
 
-        val bobId = userRepository.findByLogin("bob")!!.id!!
+        val bobId = userRepository.findByEmail("bob@example.com")!!.id!!
         mockMvc.perform(
             post("/users/$bobId/reset-password")
                 .header("Authorization", "Bearer $aliceAfter")
@@ -294,7 +294,7 @@ class OwnKeepIntegrationTest {
                 .content("""{"newPassword":"bob-password-reset"}"""),
         ).andExpect(status().isNoContent)
 
-        val bobAfterReset = login("bob", "bob-password-reset")
+        val bobAfterReset = login("bob@example.com", "bob-password-reset")
         mockMvc.perform(get("/me").header("Authorization", "Bearer $bobAfterReset"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.vault.needsRecoveryUnlock").value(true))
@@ -310,19 +310,19 @@ class OwnKeepIntegrationTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.needsRecoveryUnlock").value(false))
 
-        assertThat(userRepository.findByLogin("bob")!!.wrappedVaultKey).isNotNull()
+        assertThat(userRepository.findByEmail("bob@example.com")!!.wrappedVaultKey).isNotNull()
     }
 
     @Test
     fun `admin user list includes restore metadata in active then deleted order`() {
-        val adminToken = login("alice", "alice-password")
+        val adminToken = login("alice@example.com", "alice-password")
         val suffix = UUID.randomUUID().toString().take(8)
-        val activeA = createUser(adminToken, "recovery-$suffix-active-a")
-        val activeZ = createUser(adminToken, "recovery-$suffix-active-z")
-        val deletedA = createUser(adminToken, "recovery-$suffix-deleted-a")
-        val deletedZ = createUser(adminToken, "recovery-$suffix-deleted-z")
+        val activeA = createUser(adminToken, "recovery-$suffix-active-a@example.com")
+        val activeZ = createUser(adminToken, "recovery-$suffix-active-z@example.com")
+        val deletedA = createUser(adminToken, "recovery-$suffix-deleted-a@example.com")
+        val deletedZ = createUser(adminToken, "recovery-$suffix-deleted-z@example.com")
 
-        val deletedAToken = login(deletedA.login, TEST_USER_PASSWORD)
+        val deletedAToken = login(deletedA.email, TEST_USER_PASSWORD)
         initializeVault(deletedAToken, 21)
         mockMvc.perform(delete("/users/${deletedA.id}").header("Authorization", "Bearer $adminToken"))
             .andExpect(status().isOk)
@@ -338,11 +338,11 @@ class OwnKeepIntegrationTest {
         val trackedIds = setOf(activeA.id, activeZ.id, deletedA.id, deletedZ.id)
         val tracked = objectMapper.readTree(listResult.response.contentAsString)
             .filter { it.get("id").asLong() in trackedIds }
-        assertThat(tracked.map { it.get("login").asText() }).containsExactly(
-            activeA.login,
-            activeZ.login,
-            deletedA.login,
-            deletedZ.login,
+        assertThat(tracked.map { it.get("email").asText() }).containsExactly(
+            activeA.email,
+            activeZ.email,
+            deletedA.email,
+            deletedZ.email,
         )
         assertThat(tracked.map { it.get("enabled").asBoolean() }).containsExactly(true, true, false, false)
         assertThat(tracked.map { it.get("recoveryPending").asBoolean() })
@@ -353,10 +353,10 @@ class OwnKeepIntegrationTest {
             post("/users")
                 .header("Authorization", "Bearer $adminToken")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"${deletedZ.login}","password":"$TEST_USER_PASSWORD"}"""),
+                .content("""{"email":"${deletedZ.email}","password":"$TEST_USER_PASSWORD"}"""),
         )
             .andExpect(status().isConflict)
-            .andExpect(jsonPath("$.code").value("login_taken"))
+            .andExpect(jsonPath("$.code").value("email_taken"))
 
         mockMvc.perform(post("/users/${activeA.id}/restore").header("Authorization", "Bearer $adminToken"))
             .andExpect(status().isConflict)
@@ -374,11 +374,11 @@ class OwnKeepIntegrationTest {
 
     @Test
     fun `restored user recovery token is isolated and completion preserves encrypted data`() {
-        val adminToken = login("alice", "alice-password")
-        val bobToken = login("bob", "bob-password")
+        val adminToken = login("alice@example.com", "alice-password")
+        val bobToken = login("bob@example.com", "bob-password")
         initializeVault(bobToken, 31)
         val noteId = createEncryptedNote(bobToken, 32)
-        val bobId = requireNotNull(userRepository.findByLogin("bob")?.id)
+        val bobId = requireNotNull(userRepository.findByEmail("bob@example.com")?.id)
 
         mockMvc.perform(delete("/users/$bobId").header("Authorization", "Bearer $adminToken"))
             .andExpect(status().isOk)
@@ -399,7 +399,7 @@ class OwnKeepIntegrationTest {
         val recoveryLogin = mockMvc.perform(
             post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"bob","password":"$temporaryPassword"}"""),
+                .content("""{"email":"bob@example.com","password":"$temporaryPassword"}"""),
         )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.recoveryRequired").value(true))
@@ -422,7 +422,7 @@ class OwnKeepIntegrationTest {
         )
             .andExpect(status().isUnauthorized)
             .andExpect(jsonPath("$.code").value("invalid_recovery_token"))
-        val secondRecoveryToken = login("bob", temporaryPassword)
+        val secondRecoveryToken = login("bob@example.com", temporaryPassword)
         val completion = mockMvc.perform(
             post("/auth/recovery/complete")
                 .header("Authorization", "Bearer $recoveryToken")
@@ -456,13 +456,13 @@ class OwnKeepIntegrationTest {
         mockMvc.perform(
             post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"bob","password":"$temporaryPassword"}"""),
+                .content("""{"email":"bob@example.com","password":"$temporaryPassword"}"""),
         ).andExpect(status().isUnauthorized)
 
         val normalLogin = mockMvc.perform(
             post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"bob","password":"bob-recovered-password"}"""),
+                .content("""{"email":"bob@example.com","password":"bob-recovered-password"}"""),
         )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.recoveryRequired").value(false))
@@ -471,15 +471,15 @@ class OwnKeepIntegrationTest {
         mockMvc.perform(get("/notes/$noteId").header("Authorization", "Bearer $normalToken"))
             .andExpect(status().isOk)
 
-        val bob = userRepository.findByLogin("bob")!!
+        val bob = userRepository.findByEmail("bob@example.com")!!
         assertThat(bob.recoveryPending).isFalse()
         assertThat(bob.wrappedVaultKey).isEqualTo(ByteArray(48) { 33 })
     }
 
     @Test
     fun `permanent delete cascades user data and cleans attachment blob after commit`() {
-        val adminToken = login("alice", "alice-password")
-        val bobToken = login("bob", "bob-password")
+        val adminToken = login("alice@example.com", "alice-password")
+        val bobToken = login("bob@example.com", "bob-password")
         val noteId = createEncryptedNote(bobToken, 41)
         val attachmentId = UUID.randomUUID()
         val meta = b64(ByteArray(48) { 42 })
@@ -494,7 +494,7 @@ class OwnKeepIntegrationTest {
         val attachment = attachmentRepository.findById(attachmentId).orElseThrow()
         val storagePath = attachment.storagePath
         assertThat(attachmentBlobStore.exists(storagePath)).isTrue()
-        val bobId = requireNotNull(userRepository.findByLogin("bob")?.id)
+        val bobId = requireNotNull(userRepository.findByEmail("bob@example.com")?.id)
 
         mockMvc.perform(
             delete("/users/$bobId/permanent").header("Authorization", "Bearer $adminToken"),
@@ -521,34 +521,34 @@ class OwnKeepIntegrationTest {
         mockMvc.perform(
             post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"alice","password":"alice-password"}"""),
+                .content("""{"email":"alice@example.com","password":"alice-password"}"""),
         )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.token").isString)
     }
 
-    private fun login(login: String, password: String): String {
+    private fun login(email: String, password: String): String {
         val result = mockMvc.perform(
             post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"$login","password":"$password"}"""),
+                .content("""{"email":"$email","password":"$password"}"""),
         )
             .andExpect(status().isOk)
             .andReturn()
         return objectMapper.readTree(result.response.contentAsString).get("token").asText()
     }
 
-    private fun createUser(adminToken: String, login: String): CreatedUser {
+    private fun createUser(adminToken: String, email: String): CreatedUser {
         val result = mockMvc.perform(
             post("/users")
                 .header("Authorization", "Bearer $adminToken")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""{"login":"$login","password":"$TEST_USER_PASSWORD"}"""),
+                .content("""{"email":"$email","password":"$TEST_USER_PASSWORD"}"""),
         )
             .andExpect(status().isOk)
             .andReturn()
         val response = objectMapper.readTree(result.response.contentAsString)
-        return CreatedUser(response.get("id").asLong(), response.get("login").asText())
+        return CreatedUser(response.get("id").asLong(), response.get("email").asText())
     }
 
     private fun initializeVault(token: String, marker: Byte) {
@@ -594,7 +594,7 @@ class OwnKeepIntegrationTest {
 
     private fun b64(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
 
-    private data class CreatedUser(val id: Long, val login: String)
+    private data class CreatedUser(val id: Long, val email: String)
 
     companion object {
         private const val TEST_USER_PASSWORD = "recovery-test-password"

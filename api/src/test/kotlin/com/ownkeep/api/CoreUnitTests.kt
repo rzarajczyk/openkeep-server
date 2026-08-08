@@ -43,7 +43,7 @@ class CoreUnitTests {
             OwnKeepProperties(
                 loginRateLimit = OwnKeepProperties.LoginRateLimitProperties(
                     maxAttemptsPerIp = 3,
-                    maxAttemptsPerLogin = 100,
+                    maxAttemptsPerEmail = 100,
                     window = Duration.ofMinutes(1),
                 ),
             ),

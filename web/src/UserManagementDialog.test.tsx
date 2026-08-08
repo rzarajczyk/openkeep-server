@@ -9,11 +9,16 @@ const api = vi.hoisted(() => ({
   deleteUser: vi.fn(),
   listUsers: vi.fn(),
   permanentlyDeleteUser: vi.fn(),
+  resendUserVerification: vi.fn(),
+  resendVerification: vi.fn(),
   resetUserPassword: vi.fn(),
   restoreUser: vi.fn(),
 }))
 
-vi.mock('./api', () => ({ api }))
+vi.mock('./api', async () => {
+  const actual = await vi.importActual<typeof import('./api')>('./api')
+  return { api, ApiError: actual.ApiError }
+})
 
 const vault: VaultInfo = {
   kdfSalt: 'salt',
@@ -24,37 +29,50 @@ const vault: VaultInfo = {
   initialized: true,
   needsRecoveryUnlock: false,
 }
-const currentUser: User = { id: 1, login: 'admin', role: 'ADMIN', vault }
+const currentUser: User = { id: 1, email: 'admin@example.com', role: 'ADMIN', vault }
 const managedUsers: ManagedUser[] = [
   {
     id: 3,
-    login: 'deleted-user',
+    email: 'deleted@example.com',
     role: 'USER',
     enabled: false,
+    emailVerified: true,
     recoveryPending: false,
     canRestore: true,
   },
   {
     id: 4,
-    login: 'lost-key-user',
+    email: 'lost-key@example.com',
     role: 'USER',
     enabled: false,
+    emailVerified: true,
     recoveryPending: false,
     canRestore: false,
   },
   {
     id: 2,
-    login: 'active-user',
+    email: 'active@example.com',
     role: 'USER',
     enabled: true,
+    emailVerified: true,
+    recoveryPending: false,
+    canRestore: true,
+  },
+  {
+    id: 5,
+    email: 'pending@example.com',
+    role: 'USER',
+    enabled: true,
+    emailVerified: false,
     recoveryPending: false,
     canRestore: true,
   },
   {
     id: 1,
-    login: 'admin',
+    email: 'admin@example.com',
     role: 'ADMIN',
     enabled: true,
+    emailVerified: true,
     recoveryPending: false,
     canRestore: true,
   },
@@ -84,6 +102,7 @@ describe('UserManagementDialog deleted users', () => {
       }
     })
     api.permanentlyDeleteUser.mockResolvedValue(undefined)
+    api.resendUserVerification.mockResolvedValue(undefined)
   })
 
   it('groups deleted users after active users and explains unavailable restore', async () => {
@@ -102,13 +121,13 @@ describe('UserManagementDialog deleted users', () => {
 
   it('treats legacy summaries without enabled metadata as active', async () => {
     api.listUsers.mockResolvedValueOnce([
-      { id: 1, login: 'admin', role: 'ADMIN' } as ManagedUser,
+      { id: 1, email: 'admin@example.com', role: 'ADMIN' } as ManagedUser,
     ])
 
     renderDialog()
 
     const activeList = await screen.findByRole('list', { name: 'Active users' })
-    expect(within(activeList).getByText('admin')).toBeVisible()
+    expect(within(activeList).getByText('admin@example.com')).toBeVisible()
     expect(screen.queryByRole('heading', { name: 'Deleted users' })).not.toBeInTheDocument()
   })
 
@@ -116,14 +135,14 @@ describe('UserManagementDialog deleted users', () => {
     const browser = userEvent.setup()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderDialog()
-    await screen.findByText('active-user')
+    await screen.findByText('active@example.com')
 
-    await browser.click(screen.getByRole('button', { name: 'Delete active-user' }))
+    await browser.click(screen.getByRole('button', { name: 'Delete active@example.com' }))
 
     await waitFor(() => expect(api.deleteUser).toHaveBeenCalledWith(2))
     const deletedGroup = screen.getByRole('heading', { name: 'Deleted users' }).closest('section')
-    expect(within(deletedGroup!).getByText('active-user')).toBeInTheDocument()
-    expect(screen.getByText(/active-user was moved to deleted users/i)).toBeVisible()
+    expect(within(deletedGroup!).getByText('active@example.com')).toBeInTheDocument()
+    expect(screen.getByText(/active@example.com was moved to deleted users/i)).toBeVisible()
   })
 
   it('restores an account, marks recovery pending, and reveals the temporary password', async () => {
@@ -138,7 +157,7 @@ describe('UserManagementDialog deleted users', () => {
       temporaryPassword: 'one-time-code',
     })
     renderDialog()
-    await screen.findByText('deleted-user')
+    await screen.findByText('deleted@example.com')
 
     const deletedGroup = screen.getByRole('heading', { name: 'Deleted users' }).closest('section')
     const restoreButton = within(deletedGroup!)
@@ -149,7 +168,7 @@ describe('UserManagementDialog deleted users', () => {
     expect(await screen.findByText('one-time-code')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Copy temporary password' })).toBeVisible()
     const activeList = screen.getByRole('list', { name: 'Active users' })
-    expect(within(activeList).getByText('deleted-user')).toBeInTheDocument()
+    expect(within(activeList).getByText('deleted@example.com')).toBeInTheDocument()
     expect(within(activeList).getByText('Recovery pending')).toBeVisible()
   })
 
@@ -157,29 +176,42 @@ describe('UserManagementDialog deleted users', () => {
     const browser = userEvent.setup()
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderDialog()
-    await screen.findByText('deleted-user')
+    await screen.findByText('deleted@example.com')
 
-    await browser.click(screen.getByRole('button', { name: 'Permanently delete deleted-user' }))
+    await browser.click(screen.getByRole('button', { name: 'Permanently delete deleted@example.com' }))
 
     expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/irreversible/i))
     await waitFor(() => expect(api.permanentlyDeleteUser).toHaveBeenCalledWith(3))
-    expect(screen.queryByText('deleted-user')).not.toBeInTheDocument()
+    expect(screen.queryByText('deleted@example.com')).not.toBeInTheDocument()
   })
 
-  it('shows the backend duplicate-login warning without a recovery prompt', async () => {
+  it('shows verification status and resends for pending users', async () => {
+    const browser = userEvent.setup()
+    renderDialog()
+    await screen.findByText('pending@example.com')
+
+    expect(screen.getByText('Pending')).toBeVisible()
+    expect(screen.getAllByText('Verified').length).toBeGreaterThan(0)
+
+    await browser.click(screen.getByRole('button', { name: 'Resend verification' }))
+    await waitFor(() => expect(api.resendUserVerification).toHaveBeenCalledWith(5))
+    expect(screen.getByText(/Verification email sent to pending@example.com/i)).toBeVisible()
+  })
+
+  it('shows the backend duplicate-email warning without a recovery prompt', async () => {
     const browser = userEvent.setup()
     const confirm = vi.spyOn(window, 'confirm')
-    api.createUser.mockRejectedValue(new Error('A user with this login already exists.'))
+    api.createUser.mockRejectedValue(new Error('A user with this email already exists.'))
     renderDialog()
-    await screen.findByText('active-user')
+    await screen.findByText('active@example.com')
 
     await browser.click(screen.getByRole('button', { name: 'Add user' }))
-    await browser.type(screen.getByLabelText('Login'), 'deleted-user')
+    await browser.type(screen.getByLabelText('Email'), 'deleted@example.com')
     await browser.type(screen.getByLabelText('Temporary password'), 'temporary')
     await browser.click(screen.getByRole('button', { name: 'Create user' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'A user with this login already exists.',
+      'A user with this email already exists.',
     )
     expect(confirm).not.toHaveBeenCalled()
   })

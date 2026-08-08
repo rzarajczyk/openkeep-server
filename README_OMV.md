@@ -2,11 +2,11 @@
 
 Run OwnKeep as an OMV Compose stack using the public web image and a bind-mounted data directory.
 
-**Images:** `rzarajczyk/ownkeep-web` · `rzarajczyk/ownkeep-api` · `postgres:18-alpine`
+**Images:** prefer unified `rzarajczyk/ownkeep-core` · legacy dual `ownkeep-web` / `ownkeep-api` · `postgres:18-alpine`
 
-> **Note:** CI on `main` now publishes only the unified `rzarajczyk/ownkeep` image.
-> This OMV dual-image stack is unchanged and keeps using the last published
-> `ownkeep-web` / `ownkeep-api` tags until the NAS deploy is migrated.
+> **Note:** CI on `main` publishes the unified `rzarajczyk/ownkeep-core` image.
+> This OMV dual-image stack may still use last published dual tags until migrated
+> to the unified core image (recommended).
 
 Replace every `choose_a_strong_password` placeholder before deploying. Generate secrets with:
 
@@ -42,7 +42,7 @@ services:
       - SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE=26214400B
       - SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE=27262976B
       - SERVER_FORWARD_HEADERS_STRATEGY=framework
-      - OWNKEEP_ADMIN_USERNAME=your_admin_login
+      - OWNKEEP_ADMIN_EMAIL=admin@example.com
       - OWNKEEP_ADMIN_PASSWORD=choose_a_strong_admin_password
       - OWNKEEP_TOKEN_TTL=PT24H
       - OWNKEEP_ATTACHMENT_STORAGE_ROOT=/data/attachments

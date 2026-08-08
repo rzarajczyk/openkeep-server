@@ -22,16 +22,17 @@ export interface VaultInfo {
 
 export interface User {
   id: number
-  login: string
+  email: string
   role: UserRole
   vault: VaultInfo
 }
 
 export interface ManagedUser {
   id: number
-  login: string
+  email: string
   role: UserRole
   enabled: boolean
+  emailVerified: boolean
   recoveryPending: boolean
   canRestore: boolean
 }

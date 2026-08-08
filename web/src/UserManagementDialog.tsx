@@ -4,6 +4,7 @@ import {
   Copy,
   KeyRound,
   LoaderCircle,
+  Mail,
   RotateCcw,
   Search,
   Trash2,
@@ -12,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
-import { api } from './api'
+import { api, ApiError } from './api'
 import type { ManagedUser, User } from './types'
 import { errorMessage } from './utils'
 
@@ -25,6 +26,7 @@ function normalizeManagedUser(user: ManagedUser): ManagedUser {
   return {
     ...user,
     enabled: user.enabled !== false,
+    emailVerified: user.emailVerified === true,
     recoveryPending: user.recoveryPending === true,
     canRestore: user.canRestore === true,
   }
@@ -32,13 +34,13 @@ function normalizeManagedUser(user: ManagedUser): ManagedUser {
 
 function sortUsers(users: ManagedUser[]) {
   return users.map(normalizeManagedUser).sort(
-    (a, b) => Number(b.enabled) - Number(a.enabled) || a.login.localeCompare(b.login),
+    (a, b) => Number(b.enabled) - Number(a.enabled) || a.email.localeCompare(b.email),
   )
 }
 
 export function UserManagementDialog({ currentUser, onClose }: UserManagementDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
-  const loginId = useId()
+  const emailId = useId()
   const passwordId = useId()
   const resetPasswordId = useId()
   const searchId = useId()
@@ -48,14 +50,14 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
   const [view, setView] = useState<'list' | 'create' | 'reset'>('list')
-  const [login, setLogin] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [creating, setCreating] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [resetFor, setResetFor] = useState<ManagedUser | null>(null)
   const [resetPassword, setResetPassword] = useState('')
   const [restoredCredentials, setRestoredCredentials] = useState<{
-    login: string
+    email: string
     temporaryPassword: string
   } | null>(null)
   const [copied, setCopied] = useState(false)
@@ -63,7 +65,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
   const filteredUsers = useMemo(() => {
     const needle = query.trim().toLowerCase()
     const matches = needle
-      ? users.filter((user) => user.login.toLowerCase().includes(needle))
+      ? users.filter((user) => user.email.toLowerCase().includes(needle))
       : users
     return sortUsers(matches)
   }, [users, query])
@@ -96,18 +98,18 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     event.preventDefault()
     setError('')
     setStatus('')
-    if (!login.trim() || !password) {
-      setError('Enter a login and password for the new user.')
+    if (!email.trim() || !password) {
+      setError('Enter an email and password for the new user.')
       return
     }
     setCreating(true)
     try {
-      const created = await api.createUser(login.trim(), password)
+      const created = await api.createUser(email.trim(), password)
       setUsers((list) => sortUsers([...list, created]))
-      setLogin('')
+      setEmail('')
       setPassword('')
       setView('list')
-      setStatus(`${created.login} was added.`)
+      setStatus(`${created.email} was added.`)
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -116,7 +118,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
   }
 
   async function deleteUser(user: ManagedUser) {
-    if (!window.confirm(`Delete user “${user.login}”? They will no longer be able to sign in.`)) return
+    if (!window.confirm(`Delete user “${user.email}”? They will no longer be able to sign in.`)) return
     setBusyId(user.id)
     setError('')
     setStatus('')
@@ -131,7 +133,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
           ),
         ),
       )
-      setStatus(`${user.login} was moved to deleted users.`)
+      setStatus(`${user.email} was moved to deleted users.`)
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -154,10 +156,10 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
         ),
       )
       setRestoredCredentials({
-        login: restored.user.login,
+        email: restored.user.email,
         temporaryPassword: restored.temporaryPassword,
       })
-      setStatus(`${restored.user.login} was restored and must complete account recovery.`)
+      setStatus(`${restored.user.email} was restored and must complete account recovery.`)
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -167,7 +169,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
 
   async function permanentlyDeleteUser(user: ManagedUser) {
     const confirmed = window.confirm(
-      `Permanently delete “${user.login}” and all of their encrypted data?\n\nThis is irreversible and cannot be undone.`,
+      `Permanently delete “${user.email}” and all of their encrypted data?\n\nThis is irreversible and cannot be undone.`,
     )
     if (!confirmed) return
     setBusyId(user.id)
@@ -176,7 +178,29 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     try {
       await api.permanentlyDeleteUser(user.id)
       setUsers((list) => list.filter((entry) => entry.id !== user.id))
-      setStatus(`${user.login} was permanently deleted.`)
+      setStatus(`${user.email} was permanently deleted.`)
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function resendVerification(user: ManagedUser) {
+    setBusyId(user.id)
+    setError('')
+    setStatus('')
+    try {
+      try {
+        await api.resendUserVerification(user.id)
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.status === 404) {
+          await api.resendVerification(user.email)
+        } else {
+          throw reason
+        }
+      }
+      setStatus(`Verification email sent to ${user.email}.`)
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -196,11 +220,11 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     setBusyId(resetFor.id)
     try {
       await api.resetUserPassword(resetFor.id, resetPassword)
-      const resetLogin = resetFor.login
+      const resetEmail = resetFor.email
       setResetFor(null)
       setResetPassword('')
       setView('list')
-      setStatus(`Password updated for ${resetLogin}.`)
+      setStatus(`Password updated for ${resetEmail}.`)
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -212,17 +236,26 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
     const isCurrentUser = user.id === currentUser.id
     const canManageActive = user.enabled && !isCurrentUser && user.role !== 'ADMIN'
     const restoreExplanationId = `restore-explanation-${user.id}`
+    const showResend =
+      user.enabled && !user.emailVerified && !isCurrentUser && user.role !== 'ADMIN'
 
     return (
       <li key={user.id} className={user.enabled ? undefined : 'user-row-deleted'}>
         <div className="user-identity">
-          <span className="user-avatar" aria-hidden="true">{user.login.slice(0, 1).toUpperCase()}</span>
+          <span className="user-avatar" aria-hidden="true">{user.email.slice(0, 1).toUpperCase()}</span>
           <div>
-            <strong>{user.login}</strong>
+            <strong>{user.email}</strong>
             <span className="user-meta">
               {user.role === 'ADMIN' ? 'Administrator' : 'User'}
               {isCurrentUser && <span className="user-you">You</span>}
               {!user.enabled && <span className="user-state user-state-deleted">Deleted</span>}
+              {user.enabled && (
+                <span
+                  className={`user-state ${user.emailVerified ? 'user-state-verified' : 'user-state-pending'}`}
+                >
+                  {user.emailVerified ? 'Verified' : 'Pending'}
+                </span>
+              )}
               {user.enabled && user.recoveryPending && (
                 <span className="user-state user-state-recovery">Recovery pending</span>
               )}
@@ -236,6 +269,17 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
         </div>
         {canManageActive && (
           <div className="user-actions">
+            {showResend && (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busyId === user.id}
+                onClick={() => void resendVerification(user)}
+              >
+                {busyId === user.id ? <LoaderCircle className="spin" /> : <Mail />}
+                Resend verification
+              </button>
+            )}
             <button
               type="button"
               className="secondary-button"
@@ -253,8 +297,8 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
             <button
               type="button"
               className="icon-button danger"
-              aria-label={`Delete ${user.login}`}
-              title={`Delete ${user.login}`}
+              aria-label={`Delete ${user.email}`}
+              title={`Delete ${user.email}`}
               disabled={busyId === user.id}
               onClick={() => void deleteUser(user)}
             >
@@ -278,8 +322,8 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
             <button
               type="button"
               className="icon-button danger"
-              aria-label={`Permanently delete ${user.login}`}
-              title={`Permanently delete ${user.login}`}
+              aria-label={`Permanently delete ${user.email}`}
+              title={`Permanently delete ${user.email}`}
               disabled={busyId === user.id}
               onClick={() => void permanentlyDeleteUser(user)}
             >
@@ -337,7 +381,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
               <input
                 id={searchId}
                 type="search"
-                placeholder="Search by login"
+                placeholder="Search by email"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 disabled={loading}
@@ -351,7 +395,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
               <section className="restored-credentials" aria-labelledby="temporary-password-title">
                 <div>
                   <span className="eyebrow">Share once</span>
-                  <h4 id="temporary-password-title">Temporary password for {restoredCredentials.login}</h4>
+                  <h4 id="temporary-password-title">Temporary password for {restoredCredentials.email}</h4>
                   <p>
                     Send this password securely to the user. They must sign in with it, then enter
                     their recovery key and choose a new password.
@@ -438,13 +482,14 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
               <form className="settings-form users-task-form" onSubmit={(event) => void createUser(event)}>
                 <span className="users-task-icon"><UserPlus aria-hidden="true" /></span>
                 <h3>Create a user</h3>
-                <p>Set up login credentials for a new account.</p>
-                <label htmlFor={loginId}>Login</label>
+                <p>Set up email credentials for a new account.</p>
+                <label htmlFor={emailId}>Email</label>
                 <input
-                  id={loginId}
+                  id={emailId}
+                  type="email"
                   autoComplete="off"
-                  value={login}
-                  onChange={(event) => setLogin(event.target.value)}
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                   disabled={creating}
                   autoFocus
                 />
@@ -469,7 +514,7 @@ export function UserManagementDialog({ currentUser, onClose }: UserManagementDia
               <form className="settings-form users-task-form" onSubmit={(event) => void submitReset(event)}>
                 <span className="users-task-icon"><KeyRound aria-hidden="true" /></span>
                 <h3>Reset password</h3>
-                <p>Choose a new password for <strong>{resetFor.login}</strong>.</p>
+                <p>Choose a new password for <strong>{resetFor.email}</strong>.</p>
                 <label htmlFor={resetPasswordId}>New password</label>
                 <input
                   id={resetPasswordId}

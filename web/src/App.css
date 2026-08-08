@@ -321,30 +321,16 @@ svg {
 .field-error { color: var(--danger); font-size: 0.8rem; }
 .form-error { margin: 6px 0 0; }
 .privacy-note { margin: 28px 0 0; color: #898b87; text-align: center; font-size: 0.76rem; }
-.login-beta-note {
+.email-verify-status {
   display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  width: 100%;
-  max-width: 390px;
-  margin: -8px auto 18px;
-  padding: 11px 13px;
-  border: 1px solid #d9d6c8;
-  border-radius: 11px;
-  background: #f7f4e9;
-  color: #666257;
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-.login-beta-note svg {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  margin-top: 1px;
+  justify-content: center;
+  margin: 0 0 24px;
   color: var(--accent);
 }
-.login-beta-note strong { color: var(--ink); }
-
+.email-verify-status svg {
+  width: 36px;
+  height: 36px;
+}
 .login-copy--compact { margin-top: 34px; margin-bottom: 28px; }
 .login-copy--compact h1 { font-size: clamp(2rem, 4vw, 2.85rem); }
 
@@ -1786,6 +1772,8 @@ svg {
 }
 .user-state-deleted { color: #775f54; background: #eee4de; }
 .user-state-recovery { color: #76591e; background: #fff3cf; }
+.user-state-verified { color: #1f5546; background: #dfece6; }
+.user-state-pending { color: #6b5a2e; background: #f3ebd2; }
 .user-restore-explanation {
   max-width: 290px;
   color: #856c61;

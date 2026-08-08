@@ -79,10 +79,26 @@ class ApiClient {
     return response.json() as Promise<T>
   }
 
-  login(login: string, password: string, signal?: AbortSignal) {
+  login(email: string, password: string, signal?: AbortSignal) {
     return this.request<AuthSession>(
       '/auth/login',
-      { method: 'POST', body: JSON.stringify({ login, password }), signal },
+      { method: 'POST', body: JSON.stringify({ email, password }), signal },
+      false,
+    )
+  }
+
+  verifyEmail(token: string, signal?: AbortSignal) {
+    return this.request<void>(
+      '/auth/email/verify',
+      { method: 'POST', body: JSON.stringify({ token }), signal },
+      false,
+    )
+  }
+
+  resendVerification(email: string, signal?: AbortSignal) {
+    return this.request<void>(
+      '/auth/email/resend',
+      { method: 'POST', body: JSON.stringify({ email }), signal },
       false,
     )
   }
@@ -140,10 +156,16 @@ class ApiClient {
     return this.request<ManagedUser[]>('/users', { signal })
   }
 
-  createUser(login: string, password: string) {
+  createUser(email: string, password: string) {
     return this.request<ManagedUser>('/users', {
       method: 'POST',
-      body: JSON.stringify({ login, password }),
+      body: JSON.stringify({ email, password }),
+    })
+  }
+
+  resendUserVerification(id: number) {
+    return this.request<void>(`/users/${id}/resend-verification`, {
+      method: 'POST',
     })
   }
 

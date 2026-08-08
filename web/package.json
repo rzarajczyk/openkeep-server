@@ -1,8 +1,12 @@
 {
-  "name": "web",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@ownkeep/web",
+  "version": "0.1.0",
+  "private": false,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/index.css"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

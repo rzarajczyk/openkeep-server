@@ -43,10 +43,13 @@ Authentication is sessionless: login returns a bearer token, and every request i
 ## Data Model
 
 ### Users
-- `id`, `login`, `password_hash`, `enabled`, `role` (`ADMIN` or `USER`), `recovery_pending`, vault fields (`kdf_salt`, `kdf_params`, `wrapped_vault_key`, `wrapped_vault_key_recovery`, `vault_initialized_at`), `created_at`, `updated_at`
-- The first admin is bootstrapped once from `OWNKEEP_ADMIN_USERNAME` / `OWNKEEP_ADMIN_PASSWORD` when no enabled admin exists
-- Additional users are created by an admin in the app (no public signup). Soft-delete sets `enabled=false`, clears `recovery_pending`, and revokes tokens; login remains reserved
+- `id`, `email` (canonical, lowercased), `password_hash`, `enabled`, `role` (`ADMIN` or `USER`), `recovery_pending`, `email_verified_at`, vault fields (`kdf_salt`, `kdf_params`, `wrapped_vault_key`, `wrapped_vault_key_recovery`, `vault_initialized_at`), `created_at`, `updated_at`
+- The first admin is bootstrapped once from `OWNKEEP_ADMIN_EMAIL` / `OWNKEEP_ADMIN_PASSWORD` when no enabled admin exists. Bootstrap admins are always treated as verified and never receive verification mail.
+- **Core (self-hosted):** additional users are created by an admin in the app (no public signup). Soft-delete sets `enabled=false`, clears `recovery_pending`, and revokes tokens; email remains reserved
+- **SaaS (private image):** end users may self-register; core still exposes admin management for operators
+- Optional email verification (`OWNKEEP_EMAIL_VERIFICATION_REQUIRED`) gates login for unverified non-admin users when enabled
 - A disabled non-admin user with an initialized recovery vault can be restored. Restore sets a bcrypt-hashed temporary code, enables the user with `recovery_pending=true`, clears only `wrapped_vault_key`, and preserves notes, labels, attachments, and the recovery wrap
+- Upgrade note: accounts whose identity is not a valid email are permanently deleted (including attachment blobs) before admin bootstrap on first start after the email-identity migration
 
 ### Auth tokens
 - `id`, `user_id`, `token_hash` (SHA-256 hex), `purpose` (`SESSION` or `RECOVERY`), `expires_at`, `created_at`, `revoked_at`
@@ -98,13 +101,17 @@ Actual bytes are stored on a mounted Docker volume (or S3-compatible object stor
 
 Core endpoints:
 
-- `POST /auth/login` — returns `{ token, expiresAt, user, recoveryRequired }`; restored users receive an isolated recovery token while normal users receive a session token
+- `POST /auth/login` — `{ email, password }`; returns `{ token, expiresAt, user, recoveryRequired }`; restored users receive an isolated recovery token while normal users receive a session token; unverified non-admin users fail with `email_not_verified` when verification is required
 - `POST /auth/recovery/complete` — public/manual bearer validation for a `RECOVERY` token; `{ newPassword, wrappedVaultKey }`; completes recovery, revokes all prior tokens, and returns a normal login response
+- `POST /auth/email/verify` — `{ token }`; confirms email verification (core)
+- `POST /auth/email/resend` — `{ email }`; non-enumerating resend of verification mail (core)
+- `POST /auth/register` — SaaS extension only; `{ email, password }`; not present in core
 - `POST /auth/logout`
-- `GET /me` — `{ id, login, role }`
-- `PATCH /me/password` — `{ currentPassword, newPassword }`; revokes all of the caller’s tokens
-- `GET /users` — admin only; all users, active first and then deleted, alphabetized within each group; each item is `{ id, login, role, enabled, recoveryPending, canRestore }`
-- `POST /users` — admin only; create a `USER` with `{ login, password }`
+- `GET /me` — `{ id, email, role, vault }`
+- `PATCH /me/password` — `{ currentPassword, newPassword, wrappedVaultKey }`; revokes all of the caller’s tokens
+- `GET /users` — admin only; all users, active first and then deleted, alphabetized within each group; each item is `{ id, email, role, enabled, recoveryPending, emailVerified, canRestore }`
+- `POST /users` — admin only; create a `USER` with `{ email, password }`
+- `POST /users/:id/resend-verification` — admin only; resend verification when pending
 - `DELETE /users/:id` — admin only; soft-delete, revoke tokens, and return the updated user summary (cannot delete self or admin)
 - `POST /users/:id/restore` — admin only; restore a disabled `USER` with an initialized recovery vault; returns `{ user, temporaryPassword }`
 - `DELETE /users/:id/permanent` — admin only; permanently delete a disabled non-admin user, cascading database data and deleting attachment blobs after commit

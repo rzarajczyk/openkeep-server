@@ -32,7 +32,7 @@ const vault: VaultInfo = {
   initialized: true,
   needsRecoveryUnlock: true,
 }
-const restoredUser: User = { id: 2, login: 'restored', role: 'USER', vault }
+const restoredUser: User = { id: 2, email: 'restored@example.com', role: 'USER', vault }
 const normalSession: AuthSession = {
   token: 'normal-token',
   expiresAt: '2099-01-01T00:00:00Z',

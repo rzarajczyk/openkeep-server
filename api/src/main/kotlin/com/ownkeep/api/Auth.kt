@@ -41,7 +41,7 @@ import java.util.Base64
 data class LoginRequest(
     @field:NotBlank
     @field:Size(max = 255)
-    val login: String,
+    val email: String,
     @field:NotBlank
     @field:Size(max = 1024)
     val password: String,
@@ -103,7 +103,7 @@ data class UpdateVaultWrapRequest(
 
 data class MeResponse(
     val id: Long,
-    val login: String,
+    val email: String,
     val role: UserRole,
     val vault: VaultInfo,
 )
@@ -117,13 +117,13 @@ data class LoginResponse(
 
 data class OwnKeepPrincipal(
     val userId: Long,
-    private val login: String,
+    private val email: String,
     val role: UserRole,
     val tokenHash: String,
 ) : UserDetails {
     override fun getAuthorities() = listOf(SimpleGrantedAuthority("ROLE_${role.name}"))
     override fun getPassword() = ""
-    override fun getUsername() = login
+    override fun getUsername() = email
     override fun isAccountNonExpired() = true
     override fun isAccountNonLocked() = true
     override fun isCredentialsNonExpired() = true
@@ -143,16 +143,6 @@ fun validateUserPassword(password: String, label: String = "password") {
     }
 }
 
-fun validateUserLogin(login: String) {
-    val trimmed = login.trim()
-    if (trimmed.isBlank()) {
-        throw ApiException(HttpStatus.BAD_REQUEST, "invalid_login", "login must not be blank")
-    }
-    if (trimmed.length > 255) {
-        throw ApiException(HttpStatus.BAD_REQUEST, "invalid_login", "login exceeds 255 characters")
-    }
-}
-
 @Service
 class AdminBootstrapService(
     private val userRepository: UserRepository,
@@ -161,22 +151,22 @@ class AdminBootstrapService(
     fun hasEnabledAdmin(): Boolean = userRepository.existsByRoleAndEnabledTrue(UserRole.ADMIN)
 
     @Transactional
-    fun bootstrap(username: String, password: String) {
+    fun bootstrap(emailRaw: String, password: String) {
         if (hasEnabledAdmin()) return
 
-        validateUserLogin(username)
+        val email = validateUserEmail(emailRaw)
         validateUserPassword(password, "admin password")
-        val login = username.trim()
         val now = Instant.now()
-        val existing = userRepository.findByLogin(login)
+        val existing = userRepository.findByEmail(email)
         if (existing != null) {
             if (!existing.enabled) {
                 throw IllegalStateException(
-                    "OWNKEEP_ADMIN_USERNAME matches a disabled user; re-enable or choose a different admin username",
+                    "OWNKEEP_ADMIN_EMAIL matches a disabled user; re-enable or choose a different admin email",
                 )
             }
             existing.role = UserRole.ADMIN
             existing.passwordHash = passwordEncoder.encode(password)
+            existing.emailVerifiedAt = now
             existing.updatedAt = now
             userRepository.save(existing)
             return
@@ -184,10 +174,11 @@ class AdminBootstrapService(
 
         userRepository.save(
             UserEntity(
-                login = login,
+                email = email,
                 passwordHash = passwordEncoder.encode(password),
                 enabled = true,
                 role = UserRole.ADMIN,
+                emailVerifiedAt = now,
                 createdAt = now,
                 updatedAt = now,
             ),
@@ -208,8 +199,8 @@ class AdminBootstrapRunner(
         require(properties.loginRateLimit.maxAttemptsPerIp > 0) {
             "ownkeep.login-rate-limit.max-attempts-per-ip must be positive"
         }
-        require(properties.loginRateLimit.maxAttemptsPerLogin > 0) {
-            "ownkeep.login-rate-limit.max-attempts-per-login must be positive"
+        require(properties.loginRateLimit.maxAttemptsPerEmail > 0) {
+            "ownkeep.login-rate-limit.max-attempts-per-email must be positive"
         }
         require(!properties.loginRateLimit.window.isNegative && !properties.loginRateLimit.window.isZero) {
             "ownkeep.login-rate-limit.window must be positive"
@@ -219,12 +210,23 @@ class AdminBootstrapRunner(
 
         if (bootstrapService.hasEnabledAdmin()) return
 
-        if (properties.adminUsername.isBlank() || properties.adminPassword.isBlank()) {
+        if (properties.adminEmail.isBlank() || properties.adminPassword.isBlank()) {
             throw IllegalStateException(
-                "OWNKEEP_ADMIN_USERNAME and OWNKEEP_ADMIN_PASSWORD are required when no admin user exists",
+                "OWNKEEP_ADMIN_EMAIL and OWNKEEP_ADMIN_PASSWORD are required when no admin user exists",
             )
         }
-        bootstrapService.bootstrap(properties.adminUsername, properties.adminPassword)
+        if (properties.emailVerificationRequired) {
+            require(properties.publicBaseUrl.isNotBlank()) {
+                "OWNKEEP_PUBLIC_BASE_URL is required when email verification is enabled"
+            }
+            require(properties.mail.host.isNotBlank()) {
+                "OWNKEEP_MAIL_HOST is required when email verification is enabled"
+            }
+            require(properties.mail.from.isNotBlank() || properties.mail.username.isNotBlank()) {
+                "OWNKEEP_MAIL_FROM or OWNKEEP_MAIL_USERNAME is required when email verification is enabled"
+            }
+        }
+        bootstrapService.bootstrap(properties.adminEmail, properties.adminPassword)
     }
 }
 
@@ -240,13 +242,24 @@ class AuthService(
 
     @Transactional
     fun login(request: LoginRequest): LoginResponse {
-        val user = userRepository.findByLogin(request.login.trim())
+        val user = userRepository.findByEmail(normalizeEmail(request.email))
         val passwordWithinBcryptLimit = request.password.toByteArray(StandardCharsets.UTF_8).size <= 72
         val passwordMatches = passwordWithinBcryptLimit && runCatching {
             passwordEncoder.matches(request.password, user?.passwordHash ?: DUMMY_PASSWORD_HASH)
         }.getOrDefault(false)
         val valid = user != null && user.enabled && passwordMatches
-        if (!valid) throw ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials", "Invalid login or password")
+        if (!valid) throw ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials", "Invalid email or password")
+        if (
+            properties.emailVerificationRequired &&
+            user.role != UserRole.ADMIN &&
+            !user.emailVerified
+        ) {
+            throw ApiException(
+                HttpStatus.FORBIDDEN,
+                "email_not_verified",
+                "Verify your email before signing in",
+            )
+        }
 
         val purpose = if (user.recoveryPending) AuthTokenPurpose.RECOVERY else AuthTokenPurpose.SESSION
         return issueLogin(user, purpose)
@@ -388,7 +401,7 @@ class AuthService(
             ?: return null
         val user = userRepository.findById(token.userId).orElse(null) ?: return null
         if (!user.enabled) return null
-        return OwnKeepPrincipal(requireNotNull(user.id), user.login, user.role, token.tokenHash)
+        return OwnKeepPrincipal(requireNotNull(user.id), user.email, user.role, token.tokenHash)
     }
 
     @Transactional
@@ -463,7 +476,7 @@ class AuthService(
 
         fun toMeResponse(user: UserEntity) = MeResponse(
             id = requireNotNull(user.id),
-            login = user.login,
+            email = user.email,
             role = user.role,
             vault = toVaultInfo(user),
         )
@@ -481,10 +494,10 @@ class LoginRateLimiter(
 ) {
     private val buckets = java.util.concurrent.ConcurrentHashMap<String, Window>()
 
-    fun check(clientIp: String, login: String) {
+    fun check(clientIp: String, email: String) {
         val config = properties.loginRateLimit
         val retryAfter = consume("ip:$clientIp", config.maxAttemptsPerIp, config.window)
-            ?: consume("login:${login.lowercase()}", config.maxAttemptsPerLogin, config.window)
+            ?: consume("email:${normalizeEmail(email)}", config.maxAttemptsPerEmail, config.window)
         if (retryAfter != null) {
             throw ApiException(
                 HttpStatus.TOO_MANY_REQUESTS,
@@ -553,13 +566,14 @@ class TokenAuthenticationFilter(private val authService: AuthService) : OncePerR
 class AuthController(
     private val authService: AuthService,
     private val loginRateLimiter: LoginRateLimiter,
+    private val emailVerificationService: EmailVerificationService,
 ) {
     @PostMapping("/login")
     fun login(
         @Valid @RequestBody request: LoginRequest,
         httpRequest: HttpServletRequest,
     ): LoginResponse {
-        loginRateLimiter.check(clientIp(httpRequest), request.login.trim())
+        loginRateLimiter.check(clientIp(httpRequest), request.email)
         return authService.login(request)
     }
 
@@ -574,6 +588,21 @@ class AuthController(
             ?.trim()
             .orEmpty()
         return authService.completeRecovery(rawToken, request)
+    }
+
+    @PostMapping("/email/verify")
+    fun verifyEmail(@RequestBody request: VerifyEmailRequest): ResponseEntity<Void> {
+        emailVerificationService.confirm(request.token.trim())
+        return ResponseEntity.noContent().build()
+    }
+
+    @PostMapping("/email/resend")
+    fun resendVerification(
+        @RequestBody request: ResendVerificationRequest,
+        httpRequest: HttpServletRequest,
+    ): Map<String, String> {
+        emailVerificationService.resend(request.email, clientIp(httpRequest))
+        return mapOf("message" to "If an account needs verification, a message has been sent.")
     }
 
     @PostMapping("/logout")

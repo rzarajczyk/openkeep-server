@@ -111,8 +111,8 @@ vi.mock('./notesCipher', async () => {
   }
 })
 
-const testUser: User = { id: 1, login: 'rafal', role: 'USER', vault }
-const adminUser: User = { id: 1, login: 'admin', role: 'ADMIN', vault }
+const testUser: User = { id: 1, email: 'rafal@example.com', role: 'USER', vault }
+const adminUser: User = { id: 1, email: 'admin@example.com', role: 'ADMIN', vault }
 
 afterEach(cleanup)
 

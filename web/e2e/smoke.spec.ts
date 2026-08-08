@@ -12,7 +12,7 @@ const uninitializedVault = {
 
 const demoUser = {
   id: 1,
-  login: 'demo',
+  email: 'demo@example.com',
   role: 'USER' as const,
   vault: uninitializedVault,
 }
@@ -157,8 +157,7 @@ test.beforeEach(async ({ page }) => {
 
 test('signs in and creates a text note', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: /Hosted service/i }).click()
-  await page.getByLabel('Login').fill('demo')
+  await page.getByLabel('Email').fill('demo@example.com')
   await page.getByLabel('Password').fill('password')
   await page.getByRole('button', { name: 'Sign in' }).click()
 

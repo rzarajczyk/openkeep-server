@@ -25,9 +25,10 @@ import java.util.Base64
 
 data class UserSummaryResponse(
     val id: Long,
-    val login: String,
+    val email: String,
     val role: UserRole,
     val enabled: Boolean,
+    val emailVerified: Boolean,
     val recoveryPending: Boolean,
     val canRestore: Boolean,
 )
@@ -39,8 +40,8 @@ data class RestoreUserResponse(
 
 data class CreateUserRequest(
     @field:NotBlank
-    @field:Size(max = 255)
-    val login: String,
+    @field:Size(max = 254)
+    val email: String,
     @field:NotBlank
     @field:Size(max = 1024)
     val password: String,
@@ -59,6 +60,8 @@ class UserManagementService(
     private val attachmentRepository: AttachmentRepository,
     private val attachmentBlobStore: AttachmentBlobStore,
     private val passwordEncoder: PasswordEncoder,
+    private val userProvisioningService: UserProvisioningService,
+    private val emailVerificationService: EmailVerificationService,
 ) {
     private val clock: Clock = Clock.systemUTC()
     private val secureRandom = SecureRandom()
@@ -69,24 +72,14 @@ class UserManagementService(
 
     @Transactional
     fun createUser(request: CreateUserRequest): UserSummaryResponse {
-        validateUserLogin(request.login)
-        validateUserPassword(request.password)
-        val login = request.login.trim()
-        if (userRepository.findByLogin(login) != null) {
-            throw ApiException(HttpStatus.CONFLICT, "login_taken", "A user with this login already exists")
-        }
-        val now = clock.instant()
-        val user = userRepository.save(
-            UserEntity(
-                login = login,
-                passwordHash = passwordEncoder.encode(request.password),
-                enabled = true,
+        val provisioned = userProvisioningService.provision(
+            ProvisionUserRequest(
+                email = request.email,
+                password = request.password,
                 role = UserRole.USER,
-                createdAt = now,
-                updatedAt = now,
             ),
         )
-        return user.toSummary()
+        return provisioned.user.toSummary()
     }
 
     @Transactional
@@ -186,6 +179,10 @@ class UserManagementService(
         authTokenRepository.revokeAllForUser(requireNotNull(user.id), now)
     }
 
+    fun resendVerification(targetId: Long) {
+        emailVerificationService.resendForUser(targetId)
+    }
+
     private fun generateTemporaryPassword(): String =
         ByteArray(32)
             .also(secureRandom::nextBytes)
@@ -194,9 +191,10 @@ class UserManagementService(
     private fun UserEntity.toSummary() =
         UserSummaryResponse(
             id = requireNotNull(id),
-            login = login,
+            email = email,
             role = role,
             enabled = enabled,
+            emailVerified = emailVerified,
             recoveryPending = recoveryPending,
             canRestore = !enabled && vaultInitialized,
         )
@@ -240,6 +238,12 @@ class UsersController(private val userManagementService: UserManagementService) 
     ): ResponseEntity<Void> {
         val principal = authentication.principal as OwnKeepPrincipal
         userManagementService.resetPassword(principal.userId, id, request)
+        return ResponseEntity.noContent().build()
+    }
+
+    @PostMapping("/{id}/resend-verification")
+    fun resendVerification(@PathVariable id: Long): ResponseEntity<Void> {
+        userManagementService.resendVerification(id)
         return ResponseEntity.noContent().build()
     }
 }

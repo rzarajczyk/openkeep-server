@@ -214,7 +214,7 @@ export function RestoredUserRecovery({
         <p className="eyebrow">Account restored</p>
         <h1 id="restored-user-recovery-title">Recover your encrypted notes</h1>
         <p className="recovery-complete-intro">
-          Signed in as <strong>{user.login}</strong>. Enter the recovery key you saved when
+          Signed in as <strong>{user.email}</strong>. Enter the recovery key you saved when
           your vault was created, then choose a new password.
         </p>
         <div className="recovery-key-warning" role="note">
@@ -339,7 +339,7 @@ export function VaultUnlock({
       <p>
         {needsRecovery
           ? 'An admin reset your password. Enter your recovery key and choose a new password.'
-          : `Signed in as ${user.login}. Enter your password to decrypt notes.`}
+          : `Signed in as ${user.email}. Enter your password to decrypt notes.`}
       </p>
       <form
         onSubmit={(event) => {

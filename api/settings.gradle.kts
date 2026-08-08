@@ -1,1 +1,1 @@
-rootProject.name = "ownkeep-api"
+rootProject.name = "ownkeep-core"
