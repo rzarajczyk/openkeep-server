@@ -1,4 +1,4 @@
-import { Check, Copy, Download, KeyRound, LoaderCircle, ShieldAlert } from 'lucide-react'
+import { Check, Copy, Download, KeyRound, LoaderCircle, LockKeyhole, ShieldAlert } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../api'
 import type { AuthSession, User } from '../types'
@@ -128,31 +128,40 @@ export function VaultSetup({
 
   // Session restored before vault init (no password in memory) — ask once, same login password.
   return (
-    <main className="boot-screen vault-gate">
-      <h1>Continue signing in</h1>
-      <p>Enter your password to finish enabling encryption for your notes.</p>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          void create(password)
-        }}
-      >
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-            autoFocus
-          />
-        </label>
-        {error ? <p className="error">{error}</p> : null}
-        <button type="submit" className="primary-button" disabled={busy || !password}>
-          Continue
-        </button>
-      </form>
+    <main className="boot-screen vault-unlock-screen">
+      <section className="vault-unlock-card" aria-labelledby="vault-setup-title">
+        <span className="recovery-key-icon" aria-hidden="true">
+          <LockKeyhole />
+        </span>
+        <p className="eyebrow">Almost there</p>
+        <h1 id="vault-setup-title">Continue signing in</h1>
+        <p className="vault-unlock-intro">
+          Enter your password to finish enabling encryption for your notes.
+        </p>
+        <form
+          className="vault-unlock-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void create(password)
+          }}
+        >
+          <label>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+              autoFocus
+            />
+          </label>
+          {error ? <p className="error">{error}</p> : null}
+          <button type="submit" className="primary-button" disabled={busy || !password}>
+            Continue
+          </button>
+        </form>
+      </section>
     </main>
   )
 }
@@ -334,46 +343,66 @@ export function VaultUnlock({
   }
 
   return (
-    <main className="boot-screen vault-gate">
-      <h1>{needsRecovery ? 'Recover vault' : 'Unlock vault'}</h1>
-      <p>
-        {needsRecovery
-          ? 'An admin reset your password. Enter your recovery key and choose a new password.'
-          : `Signed in as ${user.email}. Enter your password to decrypt notes.`}
-      </p>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          void unlockWith(password)
-        }}
+    <main className="boot-screen vault-unlock-screen">
+      <section
+        className="vault-unlock-card"
+        aria-labelledby="vault-unlock-title"
       >
-        {needsRecovery ? (
+        <span className="recovery-key-icon" aria-hidden="true">
+          {needsRecovery ? <KeyRound /> : <LockKeyhole />}
+        </span>
+        <p className="eyebrow">{needsRecovery ? 'Password reset' : 'Encrypted notes'}</p>
+        <h1 id="vault-unlock-title">
+          {needsRecovery ? 'Recover your vault' : 'Unlock your workspace'}
+        </h1>
+        <p className="vault-unlock-intro">
+          {needsRecovery
+            ? 'An admin reset your password. Enter your recovery key and choose a new password.'
+            : (
+              <>
+                Signed in as <strong>{user.email}</strong>. Enter your password to decrypt
+                your notes.
+              </>
+            )}
+        </p>
+        <form
+          className="vault-unlock-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void unlockWith(password)
+          }}
+        >
+          {needsRecovery ? (
+            <label>
+              Recovery key
+              <input
+                type="text"
+                value={recoveryKey}
+                onChange={(e) => setRecoveryKey(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                required
+              />
+            </label>
+          ) : null}
           <label>
-            Recovery key
+            {needsRecovery ? 'New password' : 'Password'}
             <input
-              type="text"
-              value={recoveryKey}
-              onChange={(e) => setRecoveryKey(e.target.value)}
-              autoComplete="off"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={needsRecovery ? 'new-password' : 'current-password'}
               required
+              autoFocus={!needsRecovery}
             />
           </label>
-        ) : null}
-        <label>
-          {needsRecovery ? 'New password' : 'Password'}
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={needsRecovery ? 'new-password' : 'current-password'}
-            required
-          />
-        </label>
-        {error ? <p className="error">{error}</p> : null}
-        <button type="submit" className="primary-button" disabled={busy}>
-          {busy ? 'Unlocking…' : 'Unlock'}
-        </button>
-      </form>
+          {error ? <p className="error" role="alert">{error}</p> : null}
+          <button type="submit" className="primary-button" disabled={busy}>
+            {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : needsRecovery ? <KeyRound aria-hidden="true" /> : <LockKeyhole aria-hidden="true" />}
+            {busy ? 'Unlocking…' : needsRecovery ? 'Recover vault' : 'Unlock'}
+          </button>
+        </form>
+      </section>
     </main>
   )
 }
