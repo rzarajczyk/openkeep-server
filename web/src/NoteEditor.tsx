@@ -15,6 +15,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import type { Editor } from '@tiptap/core'
 import {
   Archive,
   ArchiveRestore,
@@ -42,6 +43,7 @@ import {
   Palette,
   Paperclip,
   Pencil,
+  PenLine,
   Pin,
   Plus,
   RotateCcw,
@@ -86,10 +88,14 @@ import { renderMarkdown, renderMarkdownInline } from './markdown/renderMarkdown'
 import { fromWire, getCachedNoteKey, toWire } from './notesCipher'
 import { selectionFromPreviewClick, type PendingEditorSelection } from './previewCursor'
 import { RenderedMarkdown } from './RenderedMarkdown'
+import { RichBlockEditor } from './richtext/RichBlockEditor'
+import { RichInlineEditor } from './richtext/RichInlineEditor'
 import { Tooltip } from './Tooltip'
 import type { Attachment, ChecklistItem, Note, SaveState } from './types'
 import { createId, errorMessage, isNoteEmpty, NOTE_COLORS, INDENT_DRAG_THRESHOLD_PX, MAX_ITEM_INDENT, normalizeIndents } from './utils'
 import { useVault } from './vault/VaultContext'
+
+type TextEditMode = 'edit' | 'rich' | 'preview'
 
 interface NoteEditorProps {
   note: Note
@@ -138,12 +144,17 @@ interface SortableChecklistRowProps {
   index: number
   itemCount: number
   previousIndent: number
-  readOnly?: boolean
+  mode: TextEditMode
   previewHtml?: string
+  pendingOffset?: number | null
+  onPendingOffsetConsumed?: () => void
   onToggle: (id: string, checked: boolean) => void
   onTextChange: (id: string, text: string) => void
   onFocusItem: (id: string) => void
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>, index: number) => void
+  onRichEnter: (index: number) => void
+  onRichBackspaceEmpty: (index: number) => void
+  onRichEditorReady: (id: string, editor: Editor | null) => void
   onMove: (index: number, direction: -1 | 1) => void
   onIndent: (id: string, direction: -1 | 1) => void
   onRemove: (id: string) => void
@@ -154,12 +165,17 @@ function SortableChecklistRow({
   index,
   itemCount,
   previousIndent,
-  readOnly = false,
+  mode,
   previewHtml = '',
+  pendingOffset = null,
+  onPendingOffsetConsumed,
   onToggle,
   onTextChange,
   onFocusItem,
   onKeyDown,
+  onRichEnter,
+  onRichBackspaceEmpty,
+  onRichEditorReady,
   onMove,
   onIndent,
   onRemove,
@@ -181,6 +197,8 @@ function SortableChecklistRow({
   const canMoveDown = index < itemCount - 1
   const canIndent = index > 0 && indent < MAX_ITEM_INDENT && indent < previousIndent + 1
   const canDeindent = indent > 0
+  const readOnly = mode === 'preview'
+  const editable = mode === 'edit' || mode === 'rich'
 
   useEffect(() => {
     if (isDragging) {
@@ -292,7 +310,7 @@ function SortableChecklistRow({
         onChange={(event) => onToggle(item.id, event.target.checked)}
         aria-label={`Mark ${item.text || `item ${index + 1}`} complete`}
       />
-      {readOnly ? (
+      {mode === 'preview' ? (
         <div
           className={`checklist-item-preview${item.checked ? ' checked' : ''}`}
           aria-label={`Checklist item ${index + 1}`}
@@ -305,6 +323,20 @@ function SortableChecklistRow({
             <span className="editor-preview-empty">Empty item</span>
           )}
         </div>
+      ) : mode === 'rich' ? (
+        <RichInlineEditor
+          itemId={item.id}
+          value={item.text}
+          checked={item.checked}
+          aria-label={`Checklist item ${index + 1}`}
+          pendingOffset={pendingOffset}
+          onPendingOffsetConsumed={onPendingOffsetConsumed}
+          onChange={(text) => onTextChange(item.id, text)}
+          onFocus={() => onFocusItem(item.id)}
+          onEnter={() => onRichEnter(index)}
+          onBackspaceEmpty={() => onRichBackspaceEmpty(index)}
+          onEditorReady={(editor) => onRichEditorReady(item.id, editor)}
+        />
       ) : (
         <input
           data-item-id={item.id}
@@ -317,7 +349,7 @@ function SortableChecklistRow({
           aria-label={`Checklist item ${index + 1}`}
         />
       )}
-      {!readOnly && (
+      {editable && (
         <Tooltip label={`Delete item ${index + 1}`}>
           <button
             type="button"
@@ -337,7 +369,7 @@ export function NoteEditor({
   note,
   knownLabels = [],
   cancelIfEmpty = false,
-  startInEditMode = false,
+  startInEditMode: _startInEditMode = false,
   ensureLabelIds,
   onClose,
   onOptimistic,
@@ -349,6 +381,8 @@ export function NoteEditor({
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
+  const richBlockEditorRef = useRef<Editor | null>(null)
+  const richInlineEditorsRef = useRef<Map<string, Editor>>(new Map())
   const labelMenuRef = useRef<HTMLDivElement>(null)
   const colorMenuRef = useRef<HTMLDivElement>(null)
   const formattingMenuRef = useRef<HTMLDivElement>(null)
@@ -370,15 +404,15 @@ export function NoteEditor({
   const [labelMenuOpen, setLabelMenuOpen] = useState(false)
   const [colorMenuOpen, setColorMenuOpen] = useState(false)
   const [formattingMenuOpen, setFormattingMenuOpen] = useState(false)
-  const [textEditMode, setTextEditMode] = useState<'preview' | 'edit'>(
-    startInEditMode ? 'edit' : 'preview',
-  )
+  const [textEditMode, setTextEditMode] = useState<TextEditMode>('rich')
   const [previewHtml, setPreviewHtml] = useState(note.contentRendered)
   const [itemPreviewHtml, setItemPreviewHtml] = useState<Record<string, string>>(() =>
     Object.fromEntries(note.items.map((item) => [item.id, item.textRendered])),
   )
   const focusedItemId = useRef<string | null>(note.items[0]?.id ?? null)
   const pendingSelection = useRef<PendingEditorSelection | null>(null)
+  const [pendingRichOffset, setPendingRichOffset] = useState<number | null>(null)
+  const [pendingRichItemId, setPendingRichItemId] = useState<string | null>(null)
   const [newLabelText, setNewLabelText] = useState('')
   const [labelError, setLabelError] = useState('')
   const [rememberedLabels, setRememberedLabels] = useState<string[]>(knownLabels)
@@ -528,6 +562,21 @@ export function NoteEditor({
       textarea.setSelectionRange(start, start)
     })
   }, [textEditMode, draft.type])
+
+  function activeRichEditor(): Editor | null {
+    if (latestDraft.current.type === 'LIST') {
+      const id = focusedItemId.current
+      return id ? richInlineEditorsRef.current.get(id) ?? null : null
+    }
+    return richBlockEditorRef.current
+  }
+
+  function applyRichFormat(command: (editor: Editor) => void) {
+    const editor = activeRichEditor()
+    if (!editor) return
+    command(editor)
+    setFormattingMenuOpen(false)
+  }
 
   useEffect(() => {
     if (draft.type !== 'LIST' || textEditMode !== 'preview') return
@@ -724,9 +773,36 @@ export function NoteEditor({
     })
   }
 
+  function runFormat(
+    markdown: (snapshot: TextareaSnapshot) => {
+      value: string
+      selectionStart: number
+      selectionEnd: number
+    },
+    rich: (editor: Editor) => void,
+  ) {
+    if (textEditMode === 'rich') applyRichFormat(rich)
+    else applyMarkdownFormat(markdown)
+  }
+
   function enterEditMode(selection: PendingEditorSelection | null = null) {
     if (selection) pendingSelection.current = selection
+    setPendingRichOffset(null)
+    setPendingRichItemId(null)
     setTextEditMode('edit')
+    setFormattingMenuOpen(false)
+  }
+
+  function enterRichMode(selection: PendingEditorSelection | null = null) {
+    if (selection) {
+      setPendingRichOffset(selection.start)
+      setPendingRichItemId(focusedItemId.current)
+    } else {
+      setPendingRichOffset(null)
+      setPendingRichItemId(null)
+    }
+    pendingSelection.current = null
+    setTextEditMode('rich')
     setFormattingMenuOpen(false)
   }
 
@@ -764,7 +840,7 @@ export function NoteEditor({
     }
 
     if (itemId) focusedItemId.current = itemId
-    enterEditMode(selection)
+    enterRichMode(selection)
   }
 
   function hasLabel(labels: string[], candidate: string) {
@@ -851,23 +927,58 @@ export function NoteEditor({
     return normalizeIndents(items).map((item, index) => ({ ...item, sortOrder: index }))
   }
 
-  function addItem() {
-    const previousIndent = draft.items.at(-1)?.indent ?? 0
+  function addItem(afterIndex?: number) {
+    const insertAt =
+      typeof afterIndex === 'number' ? afterIndex + 1 : draft.items.length
+    const previousIndent =
+      draft.items[Math.max(0, insertAt - 1)]?.indent ?? draft.items.at(-1)?.indent ?? 0
     const item: ChecklistItem = {
       id: createId(),
       text: '',
       textRendered: '',
       checked: false,
-      sortOrder: draft.items.length,
+      sortOrder: insertAt,
       indent: previousIndent,
     }
-    change((current) => ({
-      ...current,
-      items: withNormalizedItems([...current.items, item]),
-    }))
-    window.setTimeout(() => {
-      document.querySelector<HTMLInputElement>(`[data-item-id="${item.id}"]`)?.focus()
+    change((current) => {
+      const items = [...current.items]
+      items.splice(insertAt, 0, item)
+      return {
+        ...current,
+        items: withNormalizedItems(items),
+      }
     })
+    focusedItemId.current = item.id
+    window.setTimeout(() => {
+      if (textEditMode === 'rich') {
+        richInlineEditorsRef.current.get(item.id)?.commands.focus('end')
+        return
+      }
+      document.querySelector<HTMLInputElement>(`input[data-item-id="${item.id}"]`)?.focus()
+    })
+  }
+
+  function richItemEnter(index: number) {
+    addItem(index)
+  }
+
+  function richItemBackspaceEmpty(index: number) {
+    if (draft.items.length <= 1) return
+    const id = draft.items[index]?.id
+    if (!id) return
+    const previousId = draft.items[index - 1]?.id ?? draft.items[index + 1]?.id
+    removeItem(id)
+    if (previousId) {
+      focusedItemId.current = previousId
+      window.setTimeout(() => {
+        richInlineEditorsRef.current.get(previousId)?.commands.focus('end')
+      })
+    }
+  }
+
+  function onRichInlineEditorReady(id: string, editor: Editor | null) {
+    if (editor) richInlineEditorsRef.current.set(id, editor)
+    else richInlineEditorsRef.current.delete(id)
   }
 
   function addCheckboxes() {
@@ -958,7 +1069,7 @@ export function NoteEditor({
   function itemKeyDown(event: KeyboardEvent<HTMLInputElement>, index: number) {
     if (event.key === 'Enter') {
       event.preventDefault()
-      addItem()
+      addItem(index)
     }
     if (event.key === 'Backspace' && !draft.items[index]?.text && draft.items.length > 1) {
       event.preventDefault()
@@ -1155,7 +1266,16 @@ export function NoteEditor({
               onClick={() => enterEditMode()}
               aria-selected={textEditMode === 'edit'}
             >
-              <Pencil aria-hidden="true" /> Edit
+              <Pencil aria-hidden="true" /> Markdown
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={textEditMode === 'rich' ? 'active' : undefined}
+              onClick={() => enterRichMode()}
+              aria-selected={textEditMode === 'rich'}
+            >
+              <PenLine aria-hidden="true" /> Rich edit
             </button>
             <button
               type="button"
@@ -1164,6 +1284,8 @@ export function NoteEditor({
               onClick={() => {
                 setTextEditMode('preview')
                 setFormattingMenuOpen(false)
+                setPendingRichOffset(null)
+                setPendingRichItemId(null)
               }}
               aria-selected={textEditMode === 'preview'}
             >
@@ -1212,6 +1334,20 @@ export function NoteEditor({
                 <p className="editor-preview-empty">Nothing to preview yet</p>
               )}
             </div>
+          ) : textEditMode === 'rich' ? (
+            <RichBlockEditor
+              value={draft.contentRaw}
+              attachments={draft.attachments}
+              aria-label="Note content"
+              pendingOffset={pendingRichOffset}
+              onPendingOffsetConsumed={() => setPendingRichOffset(null)}
+              onChange={(contentRaw) =>
+                change((current) => ({ ...current, contentRaw }))
+              }
+              onEditorReady={(editor) => {
+                richBlockEditorRef.current = editor
+              }}
+            />
           ) : (
             <textarea
               ref={bodyRef}
@@ -1226,7 +1362,7 @@ export function NoteEditor({
           )
         ) : (
           <div
-            className={`checklist-editor${textEditMode === 'preview' ? ' preview-mode' : ''}`}
+            className={`checklist-editor${textEditMode === 'preview' ? ' preview-mode' : ''}${textEditMode === 'rich' ? ' rich-mode' : ''}`}
             aria-label={textEditMode === 'preview' ? 'Markdown preview' : undefined}
             onClick={textEditMode === 'preview' ? editFromPreview : undefined}
           >
@@ -1242,14 +1378,24 @@ export function NoteEditor({
                     index={index}
                     itemCount={draft.items.length}
                     previousIndent={index > 0 ? (draft.items[index - 1].indent ?? 0) : 0}
-                    readOnly={textEditMode === 'preview'}
+                    mode={textEditMode}
                     previewHtml={itemPreviewHtml[item.id] ?? item.textRendered}
+                    pendingOffset={
+                      pendingRichItemId === item.id ? pendingRichOffset : null
+                    }
+                    onPendingOffsetConsumed={() => {
+                      setPendingRichOffset(null)
+                      setPendingRichItemId(null)
+                    }}
                     onToggle={(id, checked) => updateItem(id, { checked })}
                     onTextChange={(id, text) => updateItem(id, { text })}
                     onFocusItem={(id) => {
                       focusedItemId.current = id
                     }}
                     onKeyDown={itemKeyDown}
+                    onRichEnter={richItemEnter}
+                    onRichBackspaceEmpty={richItemBackspaceEmpty}
+                    onRichEditorReady={onRichInlineEditorReady}
                     onMove={moveItem}
                     onIndent={adjustItemIndent}
                     onRemove={removeItem}
@@ -1257,8 +1403,8 @@ export function NoteEditor({
                 ))}
               </SortableContext>
             </DndContext>
-            {textEditMode === 'edit' && (
-              <button type="button" className="add-item" onClick={addItem}>
+            {(textEditMode === 'edit' || textEditMode === 'rich') && (
+              <button type="button" className="add-item" onClick={() => addItem()}>
                 <Plus aria-hidden="true" /> Add item
               </button>
             )}
@@ -1480,7 +1626,7 @@ export function NoteEditor({
                 <input type="file" onChange={(event) => void upload(event)} />
               </label>
             </Tooltip>
-            {textEditMode === 'edit' && (
+            {(textEditMode === 'edit' || textEditMode === 'rich') && (
               <div className="formatting-wrap" ref={formattingMenuRef}>
                 <Tooltip label="Formatting">
                   <button
@@ -1509,7 +1655,13 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Heading 1"
-                            onClick={() => applyMarkdownFormat((s) => setHeadingLevel(s, 1))}
+                            onClick={() =>
+                              runFormat(
+                                (s) => setHeadingLevel(s, 1),
+                                (editor) =>
+                                  editor.chain().focus().toggleHeading({ level: 1 }).run(),
+                              )
+                            }
                           >
                             <Heading1 aria-hidden="true" />
                           </button>
@@ -1519,7 +1671,13 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Heading 2"
-                            onClick={() => applyMarkdownFormat((s) => setHeadingLevel(s, 2))}
+                            onClick={() =>
+                              runFormat(
+                                (s) => setHeadingLevel(s, 2),
+                                (editor) =>
+                                  editor.chain().focus().toggleHeading({ level: 2 }).run(),
+                              )
+                            }
                           >
                             <Heading2 aria-hidden="true" />
                           </button>
@@ -1529,7 +1687,12 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Normal text"
-                            onClick={() => applyMarkdownFormat((s) => setHeadingLevel(s, 0))}
+                            onClick={() =>
+                              runFormat(
+                                (s) => setHeadingLevel(s, 0),
+                                (editor) => editor.chain().focus().setParagraph().run(),
+                              )
+                            }
                           >
                             <Type aria-hidden="true" />
                           </button>
@@ -1539,7 +1702,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Code block"
-                            onClick={() => applyMarkdownFormat(insertFencedCode)}
+                            onClick={() =>
+                              runFormat(insertFencedCode, (editor) =>
+                                editor.chain().focus().toggleCodeBlock().run(),
+                              )
+                            }
                           >
                             <Code2 aria-hidden="true" />
                           </button>
@@ -1550,7 +1717,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Bold"
-                            onClick={() => applyMarkdownFormat(toggleBold)}
+                            onClick={() =>
+                              runFormat(toggleBold, (editor) =>
+                                editor.chain().focus().toggleBold().run(),
+                              )
+                            }
                           >
                             <Bold aria-hidden="true" />
                           </button>
@@ -1560,7 +1731,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Italic"
-                            onClick={() => applyMarkdownFormat(toggleItalic)}
+                            onClick={() =>
+                              runFormat(toggleItalic, (editor) =>
+                                editor.chain().focus().toggleItalic().run(),
+                              )
+                            }
                           >
                             <Italic aria-hidden="true" />
                           </button>
@@ -1570,7 +1745,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Underline"
-                            onClick={() => applyMarkdownFormat(toggleUnderline)}
+                            onClick={() =>
+                              runFormat(toggleUnderline, (editor) =>
+                                editor.chain().focus().toggleUnderline().run(),
+                              )
+                            }
                           >
                             <Underline aria-hidden="true" />
                           </button>
@@ -1580,7 +1759,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Strikethrough"
-                            onClick={() => applyMarkdownFormat(toggleStrikethrough)}
+                            onClick={() =>
+                              runFormat(toggleStrikethrough, (editor) =>
+                                editor.chain().focus().toggleStrike().run(),
+                              )
+                            }
                           >
                             <Strikethrough aria-hidden="true" />
                           </button>
@@ -1592,7 +1775,11 @@ export function NoteEditor({
                             role="menuitem"
                             aria-label="Ordered list"
                             onClick={() =>
-                              applyMarkdownFormat((s) => toggleList(s, 'ordered'))
+                              runFormat(
+                                (s) => toggleList(s, 'ordered'),
+                                (editor) =>
+                                  editor.chain().focus().toggleOrderedList().run(),
+                              )
                             }
                           >
                             <ListOrdered aria-hidden="true" />
@@ -1604,7 +1791,11 @@ export function NoteEditor({
                             role="menuitem"
                             aria-label="Unordered list"
                             onClick={() =>
-                              applyMarkdownFormat((s) => toggleList(s, 'unordered'))
+                              runFormat(
+                                (s) => toggleList(s, 'unordered'),
+                                (editor) =>
+                                  editor.chain().focus().toggleBulletList().run(),
+                              )
                             }
                           >
                             <List aria-hidden="true" />
@@ -1616,7 +1807,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Horizontal line"
-                            onClick={() => applyMarkdownFormat(insertHorizontalRule)}
+                            onClick={() =>
+                              runFormat(insertHorizontalRule, (editor) =>
+                                editor.chain().focus().setHorizontalRule().run(),
+                              )
+                            }
                           >
                             <Minus aria-hidden="true" />
                           </button>
@@ -1629,7 +1824,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Bold"
-                            onClick={() => applyMarkdownFormat(toggleBold)}
+                            onClick={() =>
+                              runFormat(toggleBold, (editor) =>
+                                editor.chain().focus().toggleBold().run(),
+                              )
+                            }
                           >
                             <Bold aria-hidden="true" />
                           </button>
@@ -1639,7 +1838,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Italic"
-                            onClick={() => applyMarkdownFormat(toggleItalic)}
+                            onClick={() =>
+                              runFormat(toggleItalic, (editor) =>
+                                editor.chain().focus().toggleItalic().run(),
+                              )
+                            }
                           >
                             <Italic aria-hidden="true" />
                           </button>
@@ -1649,7 +1852,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Strikethrough"
-                            onClick={() => applyMarkdownFormat(toggleStrikethrough)}
+                            onClick={() =>
+                              runFormat(toggleStrikethrough, (editor) =>
+                                editor.chain().focus().toggleStrike().run(),
+                              )
+                            }
                           >
                             <Strikethrough aria-hidden="true" />
                           </button>
@@ -1659,7 +1866,11 @@ export function NoteEditor({
                             type="button"
                             role="menuitem"
                             aria-label="Inline code"
-                            onClick={() => applyMarkdownFormat(toggleInlineCode)}
+                            onClick={() =>
+                              runFormat(toggleInlineCode, (editor) =>
+                                editor.chain().focus().toggleCode().run(),
+                              )
+                            }
                           >
                             <Code aria-hidden="true" />
                           </button>

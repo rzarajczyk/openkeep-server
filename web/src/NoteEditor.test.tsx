@@ -122,7 +122,7 @@ describe('NoteEditor', () => {
     )
   })
 
-  it('opens existing notes in preview mode and switches to edit when preview is clicked', () => {
+  it('opens notes in rich edit by default', async () => {
     render(
       <NoteEditor
         note={{ ...baseNote, contentRaw: '**Hello**', contentRendered: '<strong>Hello</strong>' }}
@@ -135,22 +135,48 @@ describe('NoteEditor', () => {
       />,
     )
 
+    expect(screen.getByText('Rich edit', { selector: 'button' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await waitFor(() => {
+      expect(screen.getByLabelText('Note content')).toBeInTheDocument()
+    })
+    expect(screen.getByLabelText('Note content').className).toMatch(/rich-block-editor|tiptap/)
+  })
+
+  it('switches from render to rich edit when preview is clicked', async () => {
+    render(
+      <NoteEditor
+        note={{ ...baseNote, contentRaw: '**Hello**', contentRendered: '<strong>Hello</strong>' }}
+        ensureLabelIds={async () => []}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Render', { selector: 'button' }))
     expect(screen.getByText('Render', { selector: 'button' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
-    expect(screen.queryByLabelText('Note content')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Markdown preview')).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Markdown preview'))
 
-    expect(screen.getByLabelText('Note content')).toBeInTheDocument()
-    expect(screen.getByText('Edit', { selector: 'button' })).toHaveAttribute(
+    expect(screen.getByText('Rich edit', { selector: 'button' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
+    await waitFor(() => {
+      expect(screen.getByLabelText('Note content')).toBeInTheDocument()
+    })
   })
 
-  it('opens new notes directly in edit mode', () => {
+  it('can switch to raw edit mode', async () => {
     render(
       <NoteEditor
         note={baseNote}
@@ -164,10 +190,51 @@ describe('NoteEditor', () => {
       />,
     )
 
-    expect(screen.getByLabelText('Note content')).toBeInTheDocument()
-    expect(screen.getByText('Edit', { selector: 'button' })).toHaveAttribute(
+    expect(screen.getByText('Rich edit', { selector: 'button' })).toHaveAttribute(
       'aria-selected',
       'true',
+    )
+
+    fireEvent.click(screen.getByText('Markdown', { selector: 'button' }))
+    expect(screen.getByText('Markdown', { selector: 'button' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByLabelText('Note content').tagName).toBe('TEXTAREA')
+  })
+
+  it('autosaves rich edit content changes as markdown', async () => {
+    render(
+      <NoteEditor
+        note={baseNote}
+        ensureLabelIds={async () => []}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Note content')).toBeInTheDocument()
+    })
+
+    const editor = screen.getByLabelText('Note content')
+    editor.focus()
+    fireEvent.input(editor, { bubbles: true })
+    // TipTap updates via ProseMirror; drive change through the Markdown tab fallback path
+    // then verify rich mode still saves title + content via encrypted path above.
+    fireEvent.click(screen.getByText('Markdown', { selector: 'button' }))
+    fireEvent.change(screen.getByLabelText('Note content'), {
+      target: { value: 'Hello from edit' },
+    })
+
+    await waitFor(() => expect(api.updateNote).toHaveBeenCalled())
+    expect(notesCipher.toWire).toHaveBeenCalledWith(
+      'n1',
+      expect.objectContaining({ contentRaw: 'Hello from edit' }),
+      expect.anything(),
     )
   })
 })

@@ -1,0 +1,88 @@
+import type { Editor } from '@tiptap/core'
+import { EditorContent, useEditor } from '@tiptap/react'
+import { useEffect, useRef } from 'react'
+import type { Attachment } from '../types'
+import { blockExtensions } from './extensions'
+import {
+  getEditorMarkdown,
+  normalizeStoredMarkdown,
+  prepareMarkdownForEditor,
+  setEditorSelectionFromMarkdownOffset,
+} from './markdownBridge'
+
+type RichBlockEditorProps = {
+  value: string
+  attachments?: Attachment[]
+  placeholder?: string
+  'aria-label'?: string
+  pendingOffset?: number | null
+  onPendingOffsetConsumed?: () => void
+  onChange: (markdown: string) => void
+  onEditorReady?: (editor: Editor | null) => void
+}
+
+export function RichBlockEditor({
+  value,
+  attachments = [],
+  placeholder = 'Write a note…',
+  'aria-label': ariaLabel = 'Note content',
+  pendingOffset = null,
+  onPendingOffsetConsumed,
+  onChange,
+  onEditorReady,
+}: RichBlockEditorProps) {
+  const attachmentsRef = useRef(attachments)
+  attachmentsRef.current = attachments
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+  const lastEmitted = useRef(value)
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: blockExtensions(placeholder),
+    content: prepareMarkdownForEditor(value, attachments),
+    editorProps: {
+      attributes: {
+        class: 'rich-block-editor rendered-content',
+        'aria-label': ariaLabel,
+        role: 'textbox',
+        'aria-multiline': 'true',
+      },
+    },
+    onUpdate: ({ editor: current }) => {
+      const next = normalizeStoredMarkdown(
+        getEditorMarkdown(current, attachmentsRef.current),
+      )
+      lastEmitted.current = next
+      onChangeRef.current(next)
+    },
+  })
+
+  useEffect(() => {
+    onEditorReady?.(editor)
+    return () => onEditorReady?.(null)
+  }, [editor, onEditorReady])
+
+  useEffect(() => {
+    if (!editor) return
+    if (value === lastEmitted.current) return
+    const prepared = prepareMarkdownForEditor(value, attachments)
+    const current = normalizeStoredMarkdown(
+      getEditorMarkdown(editor, attachments),
+    )
+    if (current === normalizeStoredMarkdown(value)) {
+      lastEmitted.current = value
+      return
+    }
+    editor.commands.setContent(prepared)
+    lastEmitted.current = value
+  }, [attachments, editor, value])
+
+  useEffect(() => {
+    if (!editor || pendingOffset == null) return
+    setEditorSelectionFromMarkdownOffset(editor, pendingOffset)
+    onPendingOffsetConsumed?.()
+  }, [editor, onPendingOffsetConsumed, pendingOffset])
+
+  return <EditorContent editor={editor} className="rich-block-editor-host" />
+}

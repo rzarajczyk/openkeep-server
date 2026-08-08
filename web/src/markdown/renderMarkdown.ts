@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { Attachment } from '../types'
+import { preprocessMarkdown } from './preprocessMarkdown'
 
 marked.setOptions({
   gfm: true,
@@ -44,8 +45,11 @@ const BLOCK_PURIFY = {
     'br',
     'strong',
     'em',
+    'u',
     'del',
     's',
+    'sub',
+    'sup',
     'a',
     'ul',
     'ol',
@@ -61,22 +65,30 @@ const BLOCK_PURIFY = {
     'h6',
     'hr',
     'img',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
   ],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'colspan', 'rowspan', 'align'],
 }
 
 const INLINE_PURIFY = {
-  ALLOWED_TAGS: ['strong', 'em', 'del', 's', 'a', 'code', 'br'],
+  ALLOWED_TAGS: ['strong', 'em', 'u', 'del', 's', 'sub', 'sup', 'a', 'code', 'br'],
   ALLOWED_ATTR: ['href', 'title'],
 }
 
 export function renderMarkdown(markdown: string, attachments: Attachment[] = []): string {
-  const raw = marked.parse(markdown, { async: false }) as string
+  const prepared = preprocessMarkdown(markdown)
+  const raw = marked.parse(prepared, { async: false }) as string
   const withImages = rewriteImageSources(raw, attachments)
   return DOMPurify.sanitize(withImages, BLOCK_PURIFY)
 }
 
 export function renderMarkdownInline(markdown: string): string {
-  const raw = marked.parseInline(markdown, { async: false }) as string
+  const prepared = preprocessMarkdown(markdown)
+  const raw = marked.parseInline(prepared, { async: false }) as string
   return DOMPurify.sanitize(raw, INLINE_PURIFY)
 }

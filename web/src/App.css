@@ -1114,6 +1114,40 @@ svg {
 .rendered-content > :last-child { margin-bottom: 0; }
 .rendered-content h1, .rendered-content h2, .rendered-content h3 { font-size: 1rem; }
 .rendered-content pre { overflow: auto; padding: 9px; border-radius: 7px; background: rgb(0 0 0 / 6%); }
+.rendered-content table,
+.rich-block-editor table {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+  white-space: normal;
+  font-size: 0.86rem;
+}
+.rendered-content th,
+.rendered-content td,
+.rich-block-editor th,
+.rich-block-editor td {
+  padding: 6px 10px;
+  border: 1px solid rgb(65 67 63 / 18%);
+  text-align: left;
+  vertical-align: top;
+}
+.rendered-content th,
+.rich-block-editor th {
+  font-weight: 700;
+  background: rgb(0 0 0 / 4%);
+}
+.rendered-content u,
+.rich-block-editor u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rendered-content sub,
+.rendered-content sup,
+.rich-block-editor sub,
+.rich-block-editor sup {
+  font-size: 0.75em;
+  line-height: 0;
+}
 .rendered-content img { display: block; max-width: 100%; height: auto; margin: 8px 0; border-radius: 8px; }
 .card-checklist { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; font-size: 0.84rem; }
 .card-checklist li { display: grid; grid-template-columns: 18px 1fr; gap: 7px; overflow-wrap: anywhere; }
@@ -1216,16 +1250,16 @@ svg {
 .editor-mode-tabs button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-height: 32px;
-  padding: 7px 14px 8px;
+  padding: 7px 10px 8px;
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: 10px 10px 0 0;
   color: #6d716d;
   background: transparent;
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 700;
 }
 .editor-mode-tabs button:hover {
@@ -1291,6 +1325,81 @@ svg {
   background: transparent;
   font-size: 0.96rem;
   line-height: 1.6;
+}
+.rich-block-editor-host {
+  width: calc(100% - 24px);
+  min-height: 260px;
+  flex: 1;
+  margin: 0 12px 12px;
+  padding: 8px 8px 18px;
+  overflow: auto;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.rich-block-editor-host:hover,
+.rich-block-editor-host:focus-within {
+  border-color: rgb(31 85 70 / 16%);
+  background: rgb(255 255 255 / 28%);
+}
+.rich-block-editor-host .tiptap,
+.rich-block-editor {
+  min-height: 100%;
+  outline: none;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.rich-block-editor.ProseMirror p.is-editor-empty:first-child::before,
+.rich-inline-editor.ProseMirror p.is-editor-empty:first-child::before {
+  float: left;
+  height: 0;
+  color: #9a9e99;
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+.rich-block-editor > :first-child { margin-top: 0; }
+.rich-block-editor > :last-child { margin-bottom: 0; }
+.rich-block-editor h1,
+.rich-block-editor h2,
+.rich-block-editor h3 { font-size: 1rem; }
+.rich-block-editor pre {
+  overflow: auto;
+  padding: 9px;
+  border-radius: 7px;
+  background: rgb(0 0 0 / 6%);
+}
+.rich-block-editor img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+  border-radius: 8px;
+}
+.rich-inline-editor-host {
+  flex: 1;
+  min-width: 0;
+}
+.rich-inline-editor.ProseMirror,
+.rich-inline-editor {
+  width: 100%;
+  min-height: 1.4em;
+  outline: none;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.rich-inline-editor.checked,
+.rich-inline-editor.checked * {
+  color: #8a8e89;
+  text-decoration: line-through;
+}
+.checklist-editor.rich-mode .checklist-row {
+  align-items: flex-start;
+}
+.checklist-editor.rich-mode .rich-inline-editor-host {
+  padding-top: 6px;
 }
 .formatting-toggle-glyph {
   font-size: 0.95rem;
