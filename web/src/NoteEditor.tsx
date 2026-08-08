@@ -26,6 +26,7 @@ import {
   Code,
   Code2,
   DropletOff,
+  Eye,
   GripVertical,
   Heading1,
   Heading2,
@@ -40,6 +41,7 @@ import {
   Minus,
   Palette,
   Paperclip,
+  Pencil,
   Pin,
   Plus,
   RotateCcw,
@@ -58,6 +60,7 @@ import {
   type ChangeEvent,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { api } from './api'
 import { AttachmentView } from './AttachmentView'
@@ -81,6 +84,7 @@ import {
 } from './markdownFormatting'
 import { renderMarkdown, renderMarkdownInline } from './markdown/renderMarkdown'
 import { fromWire, getCachedNoteKey, toWire } from './notesCipher'
+import { selectionFromPreviewClick, type PendingEditorSelection } from './previewCursor'
 import { RenderedMarkdown } from './RenderedMarkdown'
 import { Tooltip } from './Tooltip'
 import type { Attachment, ChecklistItem, Note, SaveState } from './types'
@@ -91,6 +95,7 @@ interface NoteEditorProps {
   note: Note
   knownLabels?: string[]
   cancelIfEmpty?: boolean
+  startInEditMode?: boolean
   ensureLabelIds: (names: string[]) => Promise<string[]>
   onClose: () => void
   onOptimistic: (note: Note) => void
@@ -208,6 +213,7 @@ function SortableChecklistRow({
     <div
       className={`checklist-row${isDragging ? ' dragging' : ''}${readOnly ? ' preview' : ''}`}
       ref={setNodeRef}
+      data-item-id={item.id}
       style={{ ...style, ['--item-indent' as string]: indent }}
     >
       <div className="drag-handle-wrap" ref={menuRef}>
@@ -331,6 +337,7 @@ export function NoteEditor({
   note,
   knownLabels = [],
   cancelIfEmpty = false,
+  startInEditMode = false,
   ensureLabelIds,
   onClose,
   onOptimistic,
@@ -363,13 +370,15 @@ export function NoteEditor({
   const [labelMenuOpen, setLabelMenuOpen] = useState(false)
   const [colorMenuOpen, setColorMenuOpen] = useState(false)
   const [formattingMenuOpen, setFormattingMenuOpen] = useState(false)
-  /** Preview (read-only) is the default; plain shows the editable source + Formatting toolbar. */
-  const [textEditMode, setTextEditMode] = useState<'preview' | 'plain'>('preview')
+  const [textEditMode, setTextEditMode] = useState<'preview' | 'edit'>(
+    startInEditMode ? 'edit' : 'preview',
+  )
   const [previewHtml, setPreviewHtml] = useState(note.contentRendered)
   const [itemPreviewHtml, setItemPreviewHtml] = useState<Record<string, string>>(() =>
     Object.fromEntries(note.items.map((item) => [item.id, item.textRendered])),
   )
   const focusedItemId = useRef<string | null>(note.items[0]?.id ?? null)
+  const pendingSelection = useRef<PendingEditorSelection | null>(null)
   const [newLabelText, setNewLabelText] = useState('')
   const [labelError, setLabelError] = useState('')
   const [rememberedLabels, setRememberedLabels] = useState<string[]>(knownLabels)
@@ -493,6 +502,32 @@ export function NoteEditor({
     }, 220)
     return () => window.clearTimeout(timer)
   }, [draft.attachments, draft.contentRaw, draft.type, textEditMode])
+
+  useEffect(() => {
+    if (textEditMode !== 'edit') return
+    const selection = pendingSelection.current
+    if (!selection) return
+    pendingSelection.current = null
+
+    window.requestAnimationFrame(() => {
+      if (latestDraft.current.type === 'LIST') {
+        const input = document.querySelector<HTMLInputElement>(
+          `input[data-item-id="${focusedItemId.current ?? ''}"]`,
+        )
+        if (!input) return
+        input.focus()
+        const start = Math.min(selection.start, input.value.length)
+        input.setSelectionRange(start, start)
+        return
+      }
+
+      const textarea = bodyRef.current
+      if (!textarea) return
+      textarea.focus()
+      const start = Math.min(selection.start, textarea.value.length)
+      textarea.setSelectionRange(start, start)
+    })
+  }, [textEditMode, draft.type])
 
   useEffect(() => {
     if (draft.type !== 'LIST' || textEditMode !== 'preview') return
@@ -687,6 +722,49 @@ export function NoteEditor({
       target.focus()
       target.setSelectionRange(patch.selectionStart, patch.selectionEnd)
     })
+  }
+
+  function enterEditMode(selection: PendingEditorSelection | null = null) {
+    if (selection) pendingSelection.current = selection
+    setTextEditMode('edit')
+    setFormattingMenuOpen(false)
+  }
+
+  function editFromPreview(event: ReactMouseEvent<HTMLElement>) {
+    const target = event.target as HTMLElement
+    if (target.closest('a, button, input, label, img')) return
+
+    const itemRow = target.closest<HTMLElement>('[data-item-id]')
+    const itemId = itemRow?.dataset.itemId
+    const previewRoot = target.closest<HTMLElement>(
+      '.rendered-content, .checklist-item-preview',
+    )
+
+    let selection: PendingEditorSelection | null = null
+    if (previewRoot) {
+      if (itemId) {
+        const item = latestDraft.current.items.find((entry) => entry.id === itemId)
+        if (item) {
+          selection = selectionFromPreviewClick(
+            previewRoot,
+            event.clientX,
+            event.clientY,
+            item.text,
+            true,
+          )
+        }
+      } else {
+        selection = selectionFromPreviewClick(
+          previewRoot,
+          event.clientX,
+          event.clientY,
+          latestDraft.current.contentRaw,
+        )
+      }
+    }
+
+    if (itemId) focusedItemId.current = itemId
+    enterEditMode(selection)
   }
 
   function hasLabel(labels: string[], candidate: string) {
@@ -1069,6 +1147,29 @@ export function NoteEditor({
             {saveState === 'saved' && 'Saved'}
             {saveState === 'error' && 'Could not save'}
           </span>
+          <div className="editor-mode-tabs" role="tablist" aria-label="Note mode">
+            <button
+              type="button"
+              role="tab"
+              className={textEditMode === 'edit' ? 'active' : undefined}
+              onClick={() => enterEditMode()}
+              aria-selected={textEditMode === 'edit'}
+            >
+              <Pencil aria-hidden="true" /> Edit
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={textEditMode === 'preview' ? 'active' : undefined}
+              onClick={() => {
+                setTextEditMode('preview')
+                setFormattingMenuOpen(false)
+              }}
+              aria-selected={textEditMode === 'preview'}
+            >
+              <Eye aria-hidden="true" /> Render
+            </button>
+          </div>
           <Tooltip label="Close">
             <button
               type="button"
@@ -1095,7 +1196,11 @@ export function NoteEditor({
 
         {draft.type === 'TEXT' ? (
           textEditMode === 'preview' ? (
-            <div className="editor-markdown-preview" aria-label="Markdown preview">
+            <div
+              className="editor-markdown-preview"
+              aria-label="Markdown preview"
+              onClick={editFromPreview}
+            >
               {previewHtml ? (
                 <RenderedMarkdown
                   className="rendered-content"
@@ -1121,8 +1226,9 @@ export function NoteEditor({
           )
         ) : (
           <div
-            className="checklist-editor"
+            className={`checklist-editor${textEditMode === 'preview' ? ' preview-mode' : ''}`}
             aria-label={textEditMode === 'preview' ? 'Markdown preview' : undefined}
+            onClick={textEditMode === 'preview' ? editFromPreview : undefined}
           >
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={reorderItems}>
               <SortableContext
@@ -1151,7 +1257,7 @@ export function NoteEditor({
                 ))}
               </SortableContext>
             </DndContext>
-            {textEditMode === 'plain' && (
+            {textEditMode === 'edit' && (
               <button type="button" className="add-item" onClick={addItem}>
                 <Plus aria-hidden="true" /> Add item
               </button>
@@ -1374,29 +1480,7 @@ export function NoteEditor({
                 <input type="file" onChange={(event) => void upload(event)} />
               </label>
             </Tooltip>
-            <Tooltip
-              label={
-                textEditMode === 'preview'
-                  ? 'Markdown preview — click to edit as plain text'
-                  : 'Plain text — click for Markdown preview'
-              }
-            >
-              <button
-                type="button"
-                className={`icon-button markdown-toggle${textEditMode === 'preview' ? ' selected-tool' : ''}`}
-                onClick={() => {
-                  setTextEditMode((mode) => (mode === 'preview' ? 'plain' : 'preview'))
-                  setFormattingMenuOpen(false)
-                }}
-                aria-label="Markdown"
-                aria-pressed={textEditMode === 'preview'}
-              >
-                <span className="markdown-toggle-glyph" aria-hidden="true">
-                  M
-                </span>
-              </button>
-            </Tooltip>
-            {textEditMode === 'plain' && (
+            {textEditMode === 'edit' && (
               <div className="formatting-wrap" ref={formattingMenuRef}>
                 <Tooltip label="Formatting">
                   <button

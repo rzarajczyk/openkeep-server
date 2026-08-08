@@ -121,4 +121,53 @@ describe('NoteEditor', () => {
       }),
     )
   })
+
+  it('opens existing notes in preview mode and switches to edit when preview is clicked', () => {
+    render(
+      <NoteEditor
+        note={{ ...baseNote, contentRaw: '**Hello**', contentRendered: '<strong>Hello</strong>' }}
+        ensureLabelIds={async () => []}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Render', { selector: 'button' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.queryByLabelText('Note content')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Markdown preview'))
+
+    expect(screen.getByLabelText('Note content')).toBeInTheDocument()
+    expect(screen.getByText('Edit', { selector: 'button' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
+
+  it('opens new notes directly in edit mode', () => {
+    render(
+      <NoteEditor
+        note={baseNote}
+        startInEditMode
+        ensureLabelIds={async () => []}
+        onClose={vi.fn()}
+        onOptimistic={vi.fn()}
+        onCanonical={vi.fn()}
+        onDelete={vi.fn()}
+        onDiscard={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Note content')).toBeInTheDocument()
+    expect(screen.getByText('Edit', { selector: 'button' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
 })

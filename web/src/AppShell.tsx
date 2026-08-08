@@ -735,6 +735,7 @@ export function AppShell({ user, onLogout, onSessionEnded }: AppShellProps) {
           note={selectedNote}
           knownLabels={knownLabels}
           cancelIfEmpty={pendingNewNoteId === selectedNote.id}
+          startInEditMode={pendingNewNoteId === selectedNote.id}
           ensureLabelIds={async (names) => {
             if (!vaultKey) throw new Error('Vault is locked')
             const ids: string[] = []
