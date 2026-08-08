@@ -20,8 +20,6 @@ Vite proxies `/api` to `http://localhost:8080` and strips the `/api` prefix.
 - Preview HTML comes from `POST /api/markdown/preview` (`inline: true` for list items).
 - Toolbar tooltips use the shared `Tooltip` component (portaled into the note dialog).
 
-Product behavior is specified in [`../ownkeep-spec.md`](../ownkeep-spec.md).
-
 ## Checks
 
 ```sh
