@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Run unit tests
         run: npm test
 
@@ -60,15 +63,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      tag_now: ${{ steps.meta.outputs.tag_now }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Resolve image names
+        id: meta
         run: |
           APP_NAME=$(grep -E '^name:' compose.yaml | awk '{print $2}')
-          echo "APP_NAME=${APP_NAME}" >> "$GITHUB_ENV"
-          echo "TAG_NOW=$(date +'%Y-%m-%d-%H-%M-%S')" >> "$GITHUB_ENV"
-          echo "VERSION=$(grep -E '^version' api/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')" >> "$GITHUB_ENV"
+          TAG_NOW=$(date +'%Y-%m-%d-%H-%M-%S')
+          VERSION=$(grep -E '^version' api/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${APP_NAME}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tag_now=${TAG_NOW}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -82,9 +93,8 @@ jobs:
       - name: Prepare image tags
         id: docker
         run: |
-          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "tags=${IMAGE}:latest,${IMAGE}:${{ env.VERSION }},${IMAGE}:${{ env.TAG_NOW }}" >> "$GITHUB_OUTPUT"
+          IMAGE="${{ steps.meta.outputs.image }}"
+          echo "tags=${IMAGE}:latest,${IMAGE}:${{ steps.meta.outputs.version }},${IMAGE}:${{ steps.meta.outputs.tag_now }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push core image
         id: build
@@ -100,12 +110,14 @@ jobs:
   saas-rebuild:
     name: Rebuild ownkeep-saas
     needs: [docker]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Trigger ownkeep-saas rebuild
         env:
           SAAS_DISPATCH_TOKEN: ${{ secrets.SAAS_DISPATCH_TOKEN }}
-          CORE_IMAGE: docker.io/${{ steps.docker.outputs.image }}:${{ env.TAG_NOW }}
+          CORE_IMAGE: docker.io/${{ needs.docker.outputs.image }}:${{ needs.docker.outputs.tag_now }}
+          CORE_VERSION: ${{ needs.docker.outputs.version }}
         run: |
           set -euo pipefail
           if [ -z "${SAAS_DISPATCH_TOKEN}" ]; then
@@ -116,4 +128,4 @@ jobs:
             -f event_type='core-image-published' \
             -f "client_payload[core_image]=${CORE_IMAGE}" \
             -f "client_payload[core_ref]=${{ github.sha }}" \
-            -f "client_payload[core_version]=${{ env.VERSION }}"
+            -f "client_payload[core_version]=${CORE_VERSION}"

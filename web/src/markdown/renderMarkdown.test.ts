@@ -3,7 +3,6 @@ import {
   expandSubSuperscript,
   neutralizeReferenceDefinitions,
   neutralizeTaskListMarkers,
-  preprocessMarkdown,
 } from './preprocessMarkdown'
 import { renderMarkdown, renderMarkdownInline } from './renderMarkdown'
 
