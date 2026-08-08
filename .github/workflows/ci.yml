@@ -98,7 +98,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   saas-rebuild:
-    name: Publish image
+    name: Rebuild ownkeep-saas
     needs: [docker]
     runs-on: ubuntu-latest
     steps:
