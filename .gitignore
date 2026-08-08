@@ -38,7 +38,9 @@ pnpm-debug.log*
 # IDEs and editors
 .idea/
 .vscode/
-.cursor/
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
 *.iml
 *.ipr
 *.iws
