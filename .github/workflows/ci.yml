@@ -66,6 +66,7 @@ jobs:
       GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       GCP_REGION: ${{ secrets.GCP_REGION }}
+      GCP_CLOUD_RUN_SERVICE: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -103,7 +104,14 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Authenticate to Google Cloud
-        if: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && env.GCP_SERVICE_ACCOUNT != '' }}
+        if: >-
+          ${{
+            env.GCP_WORKLOAD_IDENTITY_PROVIDER != '' &&
+            env.GCP_SERVICE_ACCOUNT != '' &&
+            env.GCP_PROJECT_ID != '' &&
+            env.GCP_REGION != '' &&
+            env.GCP_CLOUD_RUN_SERVICE != ''
+          }}
         id: auth
         uses: google-github-actions/auth@v2
         with:
@@ -117,9 +125,7 @@ jobs:
       - name: Deploy to Cloud Run
         if: ${{ steps.auth.outcome == 'success' }}
         run: |
-          PROJECT_ID="${GCP_PROJECT_ID:-openkeep-504806}"
-          REGION="${GCP_REGION:-europe-west1}"
-          gcloud run services update openkeep \
-            --project="$PROJECT_ID" \
-            --region="$REGION" \
+          gcloud run services update "$GCP_CLOUD_RUN_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
             --image="${{ steps.docker.outputs.deploy_image }}"
