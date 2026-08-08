@@ -97,6 +97,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  saas-rebuild:
+    name: Publish image
+    needs: [docker]
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger ownkeep-saas rebuild
         env:
           SAAS_DISPATCH_TOKEN: ${{ secrets.SAAS_DISPATCH_TOKEN }}
