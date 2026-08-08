@@ -63,8 +63,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Do not put secrets.DOCKERHUB_USERNAME into job outputs — Actions blanks
+    # any output that contains a secret, which broke saas-rebuild (empty image).
     outputs:
-      image: ${{ steps.meta.outputs.image }}
+      app_name: ${{ steps.meta.outputs.app_name }}
       tag_now: ${{ steps.meta.outputs.tag_now }}
       version: ${{ steps.meta.outputs.version }}
     steps:
@@ -76,8 +78,7 @@ jobs:
           APP_NAME=$(grep -E '^name:' compose.yaml | awk '{print $2}')
           TAG_NOW=$(date +'%Y-%m-%d-%H-%M-%S')
           VERSION=$(grep -E '^version' api/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${APP_NAME}"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "app_name=${APP_NAME}" >> "$GITHUB_OUTPUT"
           echo "tag_now=${TAG_NOW}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
@@ -93,7 +94,7 @@ jobs:
       - name: Prepare image tags
         id: docker
         run: |
-          IMAGE="${{ steps.meta.outputs.image }}"
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.meta.outputs.app_name }}"
           echo "tags=${IMAGE}:latest,${IMAGE}:${{ steps.meta.outputs.version }},${IMAGE}:${{ steps.meta.outputs.tag_now }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push core image
@@ -116,12 +117,17 @@ jobs:
       - name: Trigger ownkeep-saas rebuild
         env:
           SAAS_DISPATCH_TOKEN: ${{ secrets.SAAS_DISPATCH_TOKEN }}
-          CORE_IMAGE: docker.io/${{ needs.docker.outputs.image }}:${{ needs.docker.outputs.tag_now }}
+          # Reconstruct here (secrets are fine in env; not via job outputs).
+          CORE_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ needs.docker.outputs.app_name }}:${{ needs.docker.outputs.tag_now }}
           CORE_VERSION: ${{ needs.docker.outputs.version }}
         run: |
           set -euo pipefail
           if [ -z "${SAAS_DISPATCH_TOKEN}" ]; then
             echo "::error::SAAS_DISPATCH_TOKEN secret is not configured; cannot trigger ownkeep-saas rebuild." >&2
+            exit 1
+          fi
+          if [[ ! "${CORE_IMAGE}" =~ ^docker\.io/[^/]+/[^:]+:.+$ ]]; then
+            echo "::error::CORE_IMAGE looks invalid: ${CORE_IMAGE}" >&2
             exit 1
           fi
           GH_TOKEN="$SAAS_DISPATCH_TOKEN" gh api --method POST repos/rzarajczyk/ownkeep-saas/dispatches \
